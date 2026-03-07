@@ -43,20 +43,28 @@ Output comprehensive instructions that a blind illustrator could use to perfectl
 """
 
 CLASSIFIER_PROMPT = """
-Look at this image carefully. Does it show mathematical or geometric content?
+Look at this image carefully. Is it a PURE mathematical or geometric diagram?
 
-Answer YES if the image contains:
-- Geometric shapes (triangles, circles, polygons, 3D objects)
-- Coordinate systems, graphs, or plots
-- Mathematical equations, formulas, or symbols
-- Charts, tables with numbers, or measurements
-- Diagrams with angles, lines, or mathematical annotations
+A math diagram is something you would find in a geometry textbook or math paper — it must be
+an abstract, technical drawing with NO real-world objects or decorative illustrations.
 
-Answer NO if the image contains:
-- Real-world objects (bicycles, trains, animals, people)
-- Photographs of everyday scenes
-- Artistic drawings or illustrations (unless they are geometric diagrams)
-- Text-only content without mathematical symbols
+Answer YES ONLY if the image is:
+- A geometric figure (triangles, circles, polygons with labeled angles/sides/vertices)
+- A coordinate plane, graph, or function plot
+- A formal mathematical diagram (Venn diagrams, number lines, vector diagrams)
+- A chart or graph with axes (bar chart, pie chart, scatter plot)
+- A 3D geometric shape (cube, sphere, cone with labeled dimensions)
+
+Answer NO if the image contains ANY of these:
+- Real-world objects used as decoration (flowers, trains, animals, buildings, people, daisies)
+- Numbers inside illustrated objects (e.g. numbers in train cars, flowers, stars)
+- Math puzzles presented with cartoon or decorative imagery
+- Photographs or clipart of real-world scenes
+- Ink blots, stains, or artistic elements overlaid on shapes
+- Counting or arithmetic problems using pictures of objects
+
+The key test: Could this diagram appear in a geometry textbook as-is, with NO illustrated objects?
+If the image uses real-world objects to present a math problem, answer NO.
 
 Respond with ONLY: YES or NO
 """
