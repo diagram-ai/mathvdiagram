@@ -1,0 +1,11 @@
+pandas
+Pillow
+openai
+google-generativeai
+anthropic
+datasets
+tqdm
+scikit-image
+opencv-python
+numpy
+python-dotenv
