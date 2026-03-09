@@ -18,13 +18,19 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 # --- Output CSV filenames ---
 CLASSIFICATION_CSV = os.path.join(OUTPUT_DIR, "classification_results.csv")
 SKIPPED_CSV = os.path.join(OUTPUT_DIR, "skipped_non_math.csv")
+FULL_CLASSIFICATION_CSV = os.path.join(OUTPUT_DIR, "full_classification.csv")
 DESCRIPTIONS_CSV = os.path.join(OUTPUT_DIR, "descriptions.csv")
 CONSENSUS_CSV = os.path.join(OUTPUT_DIR, "consensus_prompts.csv")
 
+# --- Classification mode ---
+# "taxonomy" = dataset_helper multi-model pipeline (default)
+# "legacy"   = original GPT binary classify.py
+CLASSIFICATION_MODE = os.getenv("CLASSIFICATION_MODE", "taxonomy")
+
 # --- Model names ---
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-OPENAI_CLASSIFIER_MODEL = "gpt-4o-mini"
-OPENAI_DESCRIPTION_MODEL = "gpt-4o"
+OPENAI_CLASSIFIER_MODEL = "gpt-5.2"
+OPENAI_DESCRIPTION_MODEL = "gpt-5.2"
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 # --- Pipeline defaults ---

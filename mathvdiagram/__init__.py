@@ -14,3 +14,8 @@
 __title__ = 'mathvdiagram'
 __version__ = '0.0.1'
 __author__ = 'Harish Kashyap, Sriram CR, Sanyukta Tuti'
+
+# Re-export dataset_helper for convenience:
+#   from mathvdiagram import dataset_helper
+#   from mathvdiagram.dataset_helper import run_full_classification
+from . import dataset_helper  # noqa: F401

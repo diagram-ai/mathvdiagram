@@ -40,7 +40,7 @@ def get_openai_description(client, image_b64: str, prompt: str, question_text: s
                     ],
                 },
             ],
-            max_tokens=1000,
+            max_completion_tokens=1000,
             timeout=30,
         )
         return response.choices[0].message.content
@@ -97,6 +97,13 @@ def run_description(
     # Only process images classified as math
     df = df[df["is_math"] == True].copy()
     print(f"Math images to describe: {len(df)}")
+
+    # Show category distribution if taxonomy columns are present
+    cat_col = "final_category" if "final_category" in df.columns else "majority_category"
+    if cat_col in df.columns:
+        print(f"\n  Category distribution ({cat_col}):")
+        for cat, count in df[cat_col].value_counts().items():
+            print(f"    {cat:<30} {count}")
 
     results, processed_ids = load_checkpoint(config.DESCRIPTIONS_CSV) if resume else ([], set())
     if processed_ids:

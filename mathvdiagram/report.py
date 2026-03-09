@@ -61,7 +61,14 @@ def generate_report(output_path: str | None = None):
     math_ids = set()
     if not classification_df.empty:
         for _, row in classification_df.iterrows():
-            all_ids.append({"image_id": row["image_id"], "question": row["question"], "is_math": True})
+            entry = {"image_id": row["image_id"], "question": row["question"], "is_math": True}
+            if "final_category" in row.index and pd.notna(row.get("final_category")):
+                entry["category"] = row["final_category"]
+            elif "majority_category" in row.index and pd.notna(row.get("majority_category")):
+                entry["category"] = row["majority_category"]
+            if "reliability_score" in row.index and pd.notna(row.get("reliability_score")):
+                entry["reliability"] = row["reliability_score"]
+            all_ids.append(entry)
             math_ids.add(row["image_id"])
     if not skipped_df.empty:
         for _, row in skipped_df.iterrows():
@@ -80,7 +87,16 @@ def generate_report(output_path: str | None = None):
         is_math = item["is_math"]
         question = item["question"]
 
-        badge = '<span class="badge math">MATH</span>' if is_math else '<span class="badge non-math">NON-MATH</span>'
+        category = item.get("category")
+        reliability = item.get("reliability")
+        if is_math and category:
+            cat_label = category.replace("_", " ").title()
+            rel_text = f" ({reliability:.0%})" if reliability is not None else ""
+            badge = f'<span class="badge math">{_esc(cat_label)}{rel_text}</span>'
+        elif is_math:
+            badge = '<span class="badge math">MATH</span>'
+        else:
+            badge = '<span class="badge non-math">NON-MATH</span>'
         img_tag = _img_tag(img_id)
 
         # Descriptions section (only for math images)
