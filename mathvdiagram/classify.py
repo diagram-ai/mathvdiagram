@@ -36,7 +36,7 @@ def classify_single_image(client, image_b64: str) -> tuple[bool, str]:
                     ],
                 },
             ],
-            max_tokens=10,
+            max_completion_tokens=10,
             timeout=30,
         )
         return response.choices[0].message.content
@@ -149,5 +149,51 @@ def run_classification(
     return math_df, skipped_df
 
 
+def export_images(
+    math_dir: str | None = None,
+    non_math_dir: str | None = None,
+):
+    """
+    Save classified images into separate folders (math/ and non_math/).
+    Reads classification CSVs and writes images from the HF dataset to disk.
+    """
+    math_dir = math_dir or os.path.join(config.OUTPUT_DIR, "math")
+    non_math_dir = non_math_dir or os.path.join(config.OUTPUT_DIR, "non_math")
+    os.makedirs(math_dir, exist_ok=True)
+    os.makedirs(non_math_dir, exist_ok=True)
+
+    from .data_loader import load_mathvision, get_image_pil
+    load_mathvision()
+
+    saved = 0
+    for csv_path, target_dir, label in [
+        (config.CLASSIFICATION_CSV, math_dir, "math"),
+        (config.SKIPPED_CSV, non_math_dir, "non_math"),
+    ]:
+        if not os.path.exists(csv_path):
+            print(f"  {csv_path} not found, skipping")
+            continue
+        df = pd.read_csv(csv_path)
+        for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Saving {label}"):
+            image_id = row["image_id"]
+            img = get_image_pil(image_id)
+            if img is None:
+                continue
+            img.save(os.path.join(target_dir, f"{image_id}.png"))
+            saved += 1
+
+    print(f"\nExported {saved} images")
+    print(f"  Math:     {math_dir}")
+    print(f"  Non-math: {non_math_dir}")
+
+
 if __name__ == "__main__":
-    run_classification()
+    import argparse
+    parser = argparse.ArgumentParser(description="Classify math diagrams")
+    parser.add_argument("--num-samples", type=int, default=None)
+    parser.add_argument("--export-images", action="store_true", help="Save images to math/ and non_math/ folders")
+    args = parser.parse_args()
+
+    run_classification(num_samples=args.num_samples)
+    if args.export_images:
+        export_images()

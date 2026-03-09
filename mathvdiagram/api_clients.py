@@ -24,3 +24,13 @@ def get_claude_client() -> Anthropic:
     return Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 
+def get_qwen_client() -> OpenAI:
+    """Get Qwen client via OpenRouter (OpenAI-compatible API)."""
+    if not config.OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY not set. Set it in .env or environment.")
+    return OpenAI(
+        api_key=config.OPENROUTER_API_KEY,
+        base_url=config.OPENROUTER_API_BASE,
+    )
+
+
