@@ -1,6 +1,6 @@
 """
 Generate an HTML report showing classification results, images,
-model descriptions, and consensus prompts.
+model descriptions, and aggregated descriptions.
 """
 
 import html
@@ -43,18 +43,25 @@ def generate_report(output_path: str | None = None):
     classification_df = pd.read_csv(config.CLASSIFICATION_CSV) if os.path.exists(config.CLASSIFICATION_CSV) else pd.DataFrame()
     skipped_df = pd.read_csv(config.SKIPPED_CSV) if os.path.exists(config.SKIPPED_CSV) else pd.DataFrame()
     descriptions_df = pd.read_csv(config.DESCRIPTIONS_CSV) if os.path.exists(config.DESCRIPTIONS_CSV) else pd.DataFrame()
-    consensus_df = pd.read_csv(config.CONSENSUS_CSV) if os.path.exists(config.CONSENSUS_CSV) else pd.DataFrame()
+    aggregated_df = pd.read_csv(config.AGGREGATED_CSV) if os.path.exists(config.AGGREGATED_CSV) else pd.DataFrame()
 
-    # Merge descriptions and consensus into a lookup by image_id
+    # Support both old column names (openai_prompt, gemini_prompt)
+    # and new column names (description_openai, description_gemini, description_claude)
+    openai_desc_col = "description_openai" if "description_openai" in descriptions_df.columns else "openai_prompt"
+    gemini_desc_col = "description_gemini" if "description_gemini" in descriptions_df.columns else "gemini_prompt"
+    claude_desc_col = "description_claude" if "description_claude" in descriptions_df.columns else None
+
+    # Merge descriptions into a lookup by image_id
     desc_map = {}
     if not descriptions_df.empty:
         for _, row in descriptions_df.iterrows():
             desc_map[row["image_id"]] = row
 
-    cons_map = {}
-    if not consensus_df.empty:
-        for _, row in consensus_df.iterrows():
-            cons_map[row["image_id"]] = row
+    # Aggregated descriptions lookup
+    agg_map = {}
+    if not aggregated_df.empty:
+        for _, row in aggregated_df.iterrows():
+            agg_map[row["image_id"]] = row
 
     # Combine all image IDs (math + skipped)
     all_ids = []
@@ -103,41 +110,66 @@ def generate_report(output_path: str | None = None):
         desc_section = ""
         if is_math and img_id in desc_map:
             d = desc_map[img_id]
-            desc_section = f"""
-            <div class="descriptions">
-                <h3>Model Descriptions</h3>
-                <div class="desc-grid">
+
+            # Build description boxes
+            desc_boxes = ""
+
+            # Gemini
+            gemini_text = d.get(gemini_desc_col, "")
+            if pd.notna(gemini_text) and len(str(gemini_text)) > 10:
+                desc_boxes += f"""
                     <div class="desc-box gemini">
                         <h4>Gemini</h4>
-                        <div class="desc-content">{_esc(d.get("gemini_prompt", ""))}</div>
+                        <div class="desc-content">{_esc(gemini_text)}</div>
                     </div>
+                """
+
+            # OpenAI
+            openai_text = d.get(openai_desc_col, "")
+            if pd.notna(openai_text) and len(str(openai_text)) > 10:
+                desc_boxes += f"""
                     <div class="desc-box openai">
                         <h4>OpenAI GPT-4o</h4>
-                        <div class="desc-content">{_esc(d.get("openai_prompt", ""))}</div>
+                        <div class="desc-content">{_esc(openai_text)}</div>
                     </div>
-                </div>
-            </div>
-            """
+                """
 
-        # Consensus section (only for math images)
-        cons_section = ""
-        if is_math and img_id in cons_map:
-            c = cons_map[img_id]
-            cons_section = f"""
-            <div class="consensus">
-                <h3>Claude Consensus</h3>
-                <div class="desc-grid">
-                    <div class="desc-box detailed">
-                        <h4>Detailed Prompt</h4>
-                        <div class="desc-content">{_esc(c.get("detailed_prompt", ""))}</div>
+            # Claude (if available)
+            if claude_desc_col and claude_desc_col in descriptions_df.columns:
+                claude_text = d.get(claude_desc_col, "")
+                if pd.notna(claude_text) and len(str(claude_text)) > 10:
+                    desc_boxes += f"""
+                    <div class="desc-box claude">
+                        <h4>Claude</h4>
+                        <div class="desc-content">{_esc(claude_text)}</div>
                     </div>
-                    <div class="desc-box concise">
-                        <h4>Concise Prompt</h4>
-                        <div class="desc-content">{_esc(c.get("concise_prompt", ""))}</div>
+                """
+
+            if desc_boxes:
+                desc_section = f"""
+                <div class="descriptions">
+                    <h3>Model Descriptions</h3>
+                    <div class="desc-grid">
+                        {desc_boxes}
                     </div>
                 </div>
-            </div>
-            """
+                """
+
+        # Aggregated description section (Qwen)
+        agg_section = ""
+        if is_math and img_id in agg_map:
+            a = agg_map[img_id]
+            final_desc = a.get("final_description", "")
+            if pd.notna(final_desc) and len(str(final_desc)) > 10:
+                agg_section = f"""
+                <div class="consensus">
+                    <h3>Qwen Aggregated Description</h3>
+                    <div class="desc-box detailed">
+                        <h4>Final Description</h4>
+                        <div class="desc-content">{_esc(final_desc)}</div>
+                    </div>
+                </div>
+                """
 
         card = f"""
         <div class="card {'math-card' if is_math else 'skip-card'}">
@@ -149,7 +181,7 @@ def generate_report(output_path: str | None = None):
                 <div class="image-container">{img_tag}</div>
                 <div class="question"><strong>Question:</strong> {_esc(question)}</div>
                 {desc_section}
-                {cons_section}
+                {agg_section}
             </div>
         </div>
         """
@@ -187,7 +219,8 @@ def generate_report(output_path: str | None = None):
     .desc-box h4 {{ margin-bottom: 8px; font-size: 0.95em; }}
     .desc-box.gemini h4 {{ color: #4285f4; }}
     .desc-box.openai h4 {{ color: #10a37f; }}
-    .desc-box.detailed h4 {{ color: #d97706; }}
+    .desc-box.claude h4 {{ color: #d97706; }}
+    .desc-box.detailed h4 {{ color: #7c3aed; }}
     .desc-box.concise h4 {{ color: #7c3aed; }}
     .desc-content {{ font-size: 0.85em; line-height: 1.6; max-height: 300px; overflow-y: auto; color: #444; }}
     .math-card {{ border-left: 4px solid #28a745; }}
@@ -198,7 +231,7 @@ def generate_report(output_path: str | None = None):
 <body>
 <div class="header">
     <h1>MathVDiagram Benchmarking Report</h1>
-    <p>Classification, Descriptions &amp; Consensus Results</p>
+    <p>Classification, Descriptions &amp; Aggregated Results</p>
     <div class="stats">
         <div class="stat"><div class="num">{len(all_ids)}</div>Total Images</div>
         <div class="stat"><div class="num">{num_math}</div>Math Diagrams</div>

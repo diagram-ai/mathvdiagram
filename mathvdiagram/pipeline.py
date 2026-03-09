@@ -3,8 +3,8 @@ Main pipeline orchestrator.
 
 Runs the full benchmarking pipeline:
   Step 1: Classify images — taxonomy-based multi-model (default) or legacy GPT binary
-  Step 2: Generate descriptions from Gemini + OpenAI for math/diagram images
-  Step 3: Claude consensus engine to produce final detailed + concise prompts
+  Step 2: Generate descriptions from OpenAI + Gemini + Claude (3 independent VLMs)
+  Step 3: Qwen aggregation (open-source VLM via OpenRouter) to produce final description
 """
 
 import os
@@ -58,12 +58,13 @@ def run_pipeline(
     delay: float | None = None,
     skip_classify: bool = False,
     skip_describe: bool = False,
+    skip_aggregate: bool = False,
     providers: list[str] | None = None,
     reliability_threshold: float = 0.7,
     legacy_classify: bool = False,
 ):
     """
-    Run the full pipeline from classification through consensus.
+    Run the full pipeline from classification through aggregation.
 
     Args:
         num_samples: Limit to first N samples. None = all.
@@ -72,7 +73,8 @@ def run_pipeline(
         delay: Seconds between API calls.
         skip_classify: Skip step 1 if classification CSV already exists.
         skip_describe: Skip step 2 if descriptions CSV already exists.
-        providers: LLM providers for taxonomy classification (default: openai, gemini, claude).
+        skip_aggregate: Skip step 3 if aggregated CSV already exists.
+        providers: LLM providers for taxonomy classification (default: openai).
         reliability_threshold: Minimum reliability score for taxonomy mode.
         legacy_classify: Force legacy GPT binary classification instead of taxonomy.
     """
@@ -112,20 +114,23 @@ def run_pipeline(
                 delay=delay,
             )
 
-    # Step 2: Descriptions
+    # Step 2: Descriptions (3 independent proprietary VLMs)
     if skip_describe and os.path.exists(config.DESCRIPTIONS_CSV):
         print(f"Skipping descriptions (using existing {config.DESCRIPTIONS_CSV})")
     else:
         print("\n" + "=" * 60)
-        print("STEP 2: Generating descriptions (Gemini + OpenAI)")
+        print("STEP 2: Generating descriptions (OpenAI + Gemini + Claude)")
         print("=" * 60)
         run_description(resume=resume, delay=delay)
 
-    # Step 3: Consensus
-    print("\n" + "=" * 60)
-    print("STEP 3: Claude consensus engine")
-    print("=" * 60)
-    consensus_df = run_consensus(resume=resume)
+    # Step 3: Aggregation (Qwen via OpenRouter)
+    if skip_aggregate and os.path.exists(config.AGGREGATED_CSV):
+        print(f"Skipping aggregation (using existing {config.AGGREGATED_CSV})")
+    else:
+        print("\n" + "=" * 60)
+        print("STEP 3: Qwen aggregation (open-source VLM)")
+        print("=" * 60)
+        aggregated_df = run_consensus(resume=resume)
 
     # Step 4: HTML Report
     print("\n" + "=" * 60)
@@ -141,10 +146,10 @@ def run_pipeline(
     print(f"  Classification: {config.CLASSIFICATION_CSV}")
     print(f"  Skipped:        {config.SKIPPED_CSV}")
     print(f"  Descriptions:   {config.DESCRIPTIONS_CSV}")
-    print(f"  Consensus:      {config.CONSENSUS_CSV}")
+    print(f"  Aggregated:     {config.AGGREGATED_CSV}")
     print(f"  Report:         {report_path}")
 
-    return consensus_df
+    return aggregated_df if 'aggregated_df' in dir() else None
 
 
 def main():
@@ -155,6 +160,7 @@ def main():
     parser.add_argument("--delay", type=float, default=None, help="Seconds between API calls")
     parser.add_argument("--skip-classify", action="store_true", help="Skip classification if CSV exists")
     parser.add_argument("--skip-describe", action="store_true", help="Skip descriptions if CSV exists")
+    parser.add_argument("--skip-aggregate", action="store_true", help="Skip aggregation if CSV exists")
     parser.add_argument(
         "--providers", nargs="+", default=["openai"],
         help="LLM providers for taxonomy classification (default: openai)",
@@ -176,6 +182,7 @@ def main():
         delay=args.delay,
         skip_classify=args.skip_classify,
         skip_describe=args.skip_describe,
+        skip_aggregate=args.skip_aggregate,
         providers=args.providers,
         reliability_threshold=args.reliability_threshold,
         legacy_classify=args.legacy_classify,
