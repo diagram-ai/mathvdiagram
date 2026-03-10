@@ -60,14 +60,14 @@ def get_qwen_client():
 
 
 def get_llama_client():
-    """Get Llama Vision client via OpenRouter (OpenAI-compatible API)."""
+    """Get Llama Vision client via Groq (OpenAI-compatible API)."""
     if OpenAI is None:
         raise ImportError("openai package is not installed. Install it with `pip install openai`.")
-    if not config.OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY not set. Set it in .env or environment.")
+    if not config.GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY not set. Set it in .env for the Llama vision provider.")
     return OpenAI(
-        api_key=config.OPENROUTER_API_KEY,
-        base_url=config.OPENROUTER_API_BASE,
+        api_key=config.GROQ_API_KEY,
+        base_url=config.GROQ_API_BASE,
     )
 
 

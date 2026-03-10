@@ -27,6 +27,37 @@ class _DummyOpenAIClient:
 
 
 class TestDescribeProviders(unittest.TestCase):
+    def test_build_description_prompt_includes_category_hint(self):
+        from mathvdiagram.describe import _build_description_prompt
+
+        with patch(
+            "mathvdiagram.describe.config.DETAILED_DESCRIPTION_PROMPT", "BASE"
+        ), patch(
+            "mathvdiagram.describe.config.CATEGORY_HINTS",
+            {"geometric_construction": "HINT"},
+        ):
+            out = _build_description_prompt("geometric_construction")
+        self.assertEqual(out, "BASE\n\nHINT")
+        with patch(
+            "mathvdiagram.describe.config.DETAILED_DESCRIPTION_PROMPT", "BASE"
+        ), patch(
+            "mathvdiagram.describe.config.CATEGORY_HINTS",
+            {"geometric_construction": "HINT"},
+        ):
+            out_unknown = _build_description_prompt("unknown")
+        self.assertEqual(out_unknown, "BASE")
+
+    def test_is_valid_description_rejects_short_or_error(self):
+        from mathvdiagram.describe import _is_valid_description
+
+        self.assertFalse(_is_valid_description(""))
+        self.assertFalse(_is_valid_description("short"))
+        self.assertFalse(_is_valid_description("[ERROR: something]"))
+        self.assertFalse(_is_valid_description("[OPENAI ERROR: x]"))
+        self.assertFalse(_is_valid_description("[LLAMA ERROR: x]"))
+        self.assertTrue(_is_valid_description("x" * 60))
+        self.assertFalse(_is_valid_description("[ERROR: x] " + "a" * 50))
+
     def test_get_qwen_description_builds_image_url_payload(self):
         from mathvdiagram import config
         from mathvdiagram.describe import get_qwen_description
@@ -60,14 +91,14 @@ class TestDescribeProviders(unittest.TestCase):
             "data:image/png;base64,AAA",
         )
 
-    def test_get_llama_description_builds_image_url_payload(self):
+    def test_get_llama_description_uses_groq_model(self):
         from mathvdiagram import config
         from mathvdiagram.describe import get_llama_description
 
         client = _DummyOpenAIClient()
-        with patch.object(config, "LLAMA_MODEL", "meta-llama/llama-3.2-11b-vision-instruct"), patch.object(
-            config, "DESCRIPTION_MAX_TOKENS", 456
-        ), patch(
+        with patch.object(
+            config, "LLAMA_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"
+        ), patch.object(config, "DESCRIPTION_MAX_TOKENS", 456), patch(
             "mathvdiagram.describe.call_with_retry", side_effect=lambda fn: fn()
         ):
             out = get_llama_description(
@@ -78,7 +109,9 @@ class TestDescribeProviders(unittest.TestCase):
             )
 
         self.assertEqual(out, "ok")
-        self.assertEqual(client.last_kwargs["model"], "meta-llama/llama-3.2-11b-vision-instruct")
+        self.assertEqual(
+            client.last_kwargs["model"], "meta-llama/llama-4-scout-17b-16e-instruct"
+        )
         messages = client.last_kwargs["messages"]
         self.assertIn("ONLY describe", messages[0]["content"])
         self.assertEqual(

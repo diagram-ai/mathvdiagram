@@ -206,7 +206,7 @@ def get_qwen_description(client, image_b64: str, question_text: str, category: s
 
 
 def get_llama_description(client, image_b64: str, question_text: str, category: str = "unknown") -> str:
-    """Get description from Llama vision model via OpenRouter."""
+    """Get description from Llama vision model via Groq."""
     prompt = _build_description_prompt(category)
 
     def _call():
@@ -405,7 +405,7 @@ def run_description(
             entry["description_qwen"] = f"[ERROR: {str(e)[:200]}]"
             errors.append(f"qwen: {str(e)[:100]}")
 
-        # Llama (via OpenRouter)
+        # Llama (via Groq)
         try:
             time.sleep(delay)
             entry["description_llama"] = get_llama_description(
