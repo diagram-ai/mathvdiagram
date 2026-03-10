@@ -10,6 +10,7 @@ sends them to Qwen which produces a final authoritative description by:
 
 import os
 import time
+import logging
 
 import pandas as pd
 from tqdm import tqdm
@@ -18,6 +19,9 @@ from . import config
 from .api_clients import get_qwen_client
 from .data_loader import load_mathvision, get_image_base64
 from .utils import call_with_retry, load_checkpoint, save_checkpoint
+
+
+logger = logging.getLogger(__name__)
 
 
 AGGREGATION_PROMPT = """You are an expert mathematical diagram analyst performing description aggregation.
@@ -131,7 +135,15 @@ def aggregate_single_image(qwen_client, row: dict, image_b64: str, media_type: s
         )
         return response.choices[0].message.content
 
+    start = time.time()
     result = call_with_retry(_call, max_retries=3)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] qwen.aggregate response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and "[API ERROR" in result:
         return f"[QWEN_ERROR: {result}]"
     return result

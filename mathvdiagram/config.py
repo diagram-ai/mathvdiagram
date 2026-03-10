@@ -14,6 +14,11 @@ OPENROUTER_API_BASE = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/ap
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen/qwen3-vl-235b-a22b-instruct")
 AGGREGATION_MAX_TOKENS = int(os.getenv("AGGREGATION_MAX_TOKENS", "3000"))
 
+# --- Groq (Llama vision: Groq only; Qwen VL is not on Groq, use OpenRouter) ---
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_BASE = os.getenv("GROQ_API_BASE", "https://api.groq.com/openai/v1")
+LLAMA_MODEL = os.getenv("LLAMA_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+
 # --- HuggingFace Dataset ---
 HF_DATASET_NAME = os.getenv("HF_DATASET_NAME", "MathLLMs/MathVision")
 HF_SPLIT = os.getenv("HF_SPLIT", "test")
