@@ -12,6 +12,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_API_BASE = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen/qwen3-vl-235b-a22b-instruct")
+LLAMA_MODEL = os.getenv("LLAMA_MODEL", "meta-llama/llama-3.2-11b-vision-instruct")
 AGGREGATION_MAX_TOKENS = int(os.getenv("AGGREGATION_MAX_TOKENS", "3000"))
 
 # --- HuggingFace Dataset ---
