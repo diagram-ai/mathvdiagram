@@ -8,6 +8,7 @@ prompt with a category-specific hint.
 
 import os
 import time
+import logging
 
 import pandas as pd
 from tqdm import tqdm
@@ -23,6 +24,8 @@ from .api_clients import (
 from .data_loader import load_mathvision, get_image_pil, get_image_base64
 from .utils import encode_image_base64, call_with_retry, load_checkpoint, save_checkpoint
 
+
+logger = logging.getLogger(__name__)
 
 def _build_description_prompt(category: str = "unknown") -> str:
     """Build the full description prompt with category-specific hint."""
@@ -64,7 +67,15 @@ def get_openai_description(client, image_b64: str, question_text: str, category:
         )
         return response.choices[0].message.content
 
+    start = time.time()
     result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] openai.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
         return f"[OPENAI ERROR: {result}]"
     return result
@@ -85,7 +96,15 @@ def get_gemini_description(model, image_pil, question_text: str, category: str =
         )
         return response.text
 
+    start = time.time()
     result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] gemini.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
         return f"[GEMINI ERROR: {result}]"
     return result
@@ -127,7 +146,15 @@ def get_claude_description(client, image_b64: str, question_text: str, category:
         )
         return response.content[0].text
 
+    start = time.time()
     result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] claude.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
         return f"[CLAUDE ERROR: {result}]"
     return result
@@ -164,7 +191,15 @@ def get_qwen_description(client, image_b64: str, question_text: str, category: s
         )
         return response.choices[0].message.content
 
+    start = time.time()
     result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] qwen.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
         return f"[QWEN ERROR: {result}]"
     return result
@@ -201,7 +236,15 @@ def get_llama_description(client, image_b64: str, question_text: str, category: 
         )
         return response.choices[0].message.content
 
+    start = time.time()
     result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] llama.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
     if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
         return f"[LLAMA ERROR: {result}]"
     return result
