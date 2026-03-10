@@ -9,6 +9,7 @@ prompt with a category-specific hint.
 import os
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 from tqdm import tqdm
@@ -62,7 +63,7 @@ def get_openai_description(client, image_b64: str, question_text: str, category:
                     ],
                 },
             ],
-            max_tokens=config.DESCRIPTION_MAX_TOKENS,
+            max_completion_tokens=config.DESCRIPTION_MAX_TOKENS,
             timeout=60,
         )
         return response.choices[0].message.content
@@ -277,6 +278,7 @@ def run_description(
     input_csv: str | None = None,
     resume: bool = True,
     delay: float | None = None,
+    workers: int = 5,
 ):
     """
     Generate descriptions for all math-classified images using multiple providers.
@@ -365,55 +367,27 @@ def run_description(
 
         errors = []
 
-        # OpenAI
-        try:
-            time.sleep(delay)
-            entry["description_openai"] = get_openai_description(
-                openai_client, img_b64, question_text, category=category
-            )
-        except Exception as e:
-            entry["description_openai"] = f"[ERROR: {str(e)[:200]}]"
-            errors.append(f"openai: {str(e)[:100]}")
+        time.sleep(delay)
 
-        # Gemini
-        try:
-            time.sleep(delay)
-            entry["description_gemini"] = get_gemini_description(
-                gemini_model, img_pil, question_text, category=category
-            )
-        except Exception as e:
-            entry["description_gemini"] = f"[ERROR: {str(e)[:200]}]"
-            errors.append(f"gemini: {str(e)[:100]}")
+        provider_calls = {
+            "openai": (get_openai_description, openai_client, img_b64, question_text, category),
+            "gemini": (get_gemini_description, gemini_model, img_pil, question_text, category),
+            "claude": (get_claude_description, claude_client, img_b64, question_text, category),
+            "qwen":   (get_qwen_description,   qwen_client,   img_b64, question_text, category),
+            "llama":  (get_llama_description,  llama_client,  img_b64, question_text, category),
+        }
 
-        # Claude
-        try:
-            time.sleep(delay)
-            entry["description_claude"] = get_claude_description(
-                claude_client, img_b64, question_text, category=category
-            )
-        except Exception as e:
-            entry["description_claude"] = f"[ERROR: {str(e)[:200]}]"
-            errors.append(f"claude: {str(e)[:100]}")
-
-        # Qwen (via OpenRouter)
-        try:
-            time.sleep(delay)
-            entry["description_qwen"] = get_qwen_description(
-                qwen_client, img_b64, question_text, category=category
-            )
-        except Exception as e:
-            entry["description_qwen"] = f"[ERROR: {str(e)[:200]}]"
-            errors.append(f"qwen: {str(e)[:100]}")
-
-        # Llama (via Groq)
-        try:
-            time.sleep(delay)
-            entry["description_llama"] = get_llama_description(
-                llama_client, img_b64, question_text, category=category
-            )
-        except Exception as e:
-            entry["description_llama"] = f"[ERROR: {str(e)[:200]}]"
-            errors.append(f"llama: {str(e)[:100]}")
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                name: pool.submit(fn, *args)
+                for name, (fn, *args) in provider_calls.items()
+            }
+            for name, future in futures.items():
+                try:
+                    entry[f"description_{name}"] = future.result()
+                except Exception as e:
+                    entry[f"description_{name}"] = f"[ERROR: {str(e)[:200]}]"
+                    errors.append(f"{name}: {str(e)[:100]}")
 
         entry["error_log"] = "; ".join(errors) if errors else ""
 
