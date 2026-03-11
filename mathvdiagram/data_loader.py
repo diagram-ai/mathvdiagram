@@ -90,6 +90,7 @@ def get_image_bytes(image_id) -> bytes | None:
 def prepare_all_images(
     output_csv: str | None = None,
     num_samples: int | None = None,
+    test_ids: list | None = None,
 ) -> pd.DataFrame:
     """
     Build a pass-through CSV for the description step that includes every
@@ -101,6 +102,7 @@ def prepare_all_images(
     Args:
         output_csv: Destination path. Defaults to config.ALL_IMAGES_CSV.
         num_samples: Limit to first N rows (useful for testing).
+        test_ids: Only include specific image IDs (useful for spot-testing).
 
     Returns:
         DataFrame with columns: image_id, question, is_math, final_category.
@@ -108,7 +110,9 @@ def prepare_all_images(
     output_csv = output_csv or config.ALL_IMAGES_CSV
 
     df = load_mathvision()
-    if num_samples:
+    if test_ids:
+        df = df[df["id"].astype(str).isin([str(i) for i in test_ids])]
+    elif num_samples:
         df = df.head(num_samples)
 
     result = pd.DataFrame({

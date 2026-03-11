@@ -155,6 +155,7 @@ def run_pipeline(
 
 def run_benchmarking_pipeline(
     num_samples: int | None = None,
+    test_ids: list | None = None,
     resume: bool = True,
     delay: float | None = None,
     skip_prep: bool = False,
@@ -172,6 +173,7 @@ def run_benchmarking_pipeline(
 
     Args:
         num_samples: Limit to first N images. None = all 3040.
+        test_ids: Only process specific image IDs (e.g. [363, 364, 365]).
         resume: Resume each step from existing checkpoints.
         delay: Seconds between API calls.
         skip_prep: Skip step 1 if all_images.csv already exists.
@@ -186,7 +188,7 @@ def run_benchmarking_pipeline(
         print("=" * 60)
         print("STEP 1: Preparing all images (bypassing classification)")
         print("=" * 60)
-        prepare_all_images(num_samples=num_samples)
+        prepare_all_images(num_samples=num_samples, test_ids=test_ids)
 
     if skip_describe and os.path.exists(config.DESCRIPTIONS_CSV):
         print(f"Skipping describe (using existing {config.DESCRIPTIONS_CSV})")
