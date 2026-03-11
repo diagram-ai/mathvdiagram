@@ -249,5 +249,131 @@ def generate_report(output_path: str | None = None):
     return output_path
 
 
+def generate_benchmarking_report(output_path: str | None = None) -> str:
+    """
+    Generate benchmarking_report.html for the classification-free pipeline.
+
+    Shows one card per image: original image on the left, concise_prompt
+    produced by the Llama 3.3-70B judge on the right.
+
+    Args:
+        output_path: Destination HTML path. Defaults to config.BENCHMARKING_REPORT.
+
+    Returns:
+        Path to the written HTML file.
+    """
+    output_path = output_path or config.BENCHMARKING_REPORT
+
+    load_mathvision()
+
+    all_images_df = pd.read_csv(config.ALL_IMAGES_CSV)       if os.path.exists(config.ALL_IMAGES_CSV)       else pd.DataFrame()
+    prompts_df    = pd.read_csv(config.CONCISE_PROMPTS_CSV)  if os.path.exists(config.CONCISE_PROMPTS_CSV)  else pd.DataFrame()
+
+    prompt_map = {}
+    if not prompts_df.empty:
+        for _, row in prompts_df.iterrows():
+            prompt_map[row["image_id"]] = row
+
+    rows = all_images_df.to_dict("records") if not all_images_df.empty else []
+    rows.sort(key=lambda r: int(r["image_id"]) if str(r["image_id"]).isdigit() else r["image_id"])
+
+    total       = len(rows)
+    with_prompt = sum(1 for r in rows if r["image_id"] in prompt_map)
+
+    cards_html = []
+    for item in rows:
+        img_id   = item["image_id"]
+        question = item.get("question", "")
+        category = str(item.get("final_category", "unknown")).replace("_", " ").title()
+        img_tag  = _img_tag(img_id)
+
+        if img_id in prompt_map:
+            p       = prompt_map[img_id]
+            concise = p.get("concise_prompt", "")
+            n_used  = p.get("n_descriptions_used", "?")
+            prompt_section = f"""
+                <div class="prompt-box">
+                    <div class="prompt-header">
+                        <span class="prompt-label">Reconstruction Prompt</span>
+                        <span class="prompt-meta">{n_used}/5 descriptions used</span>
+                    </div>
+                    <div class="prompt-text">{_esc(concise)}</div>
+                </div>""" if pd.notna(concise) and len(str(concise)) > 10 else \
+                '<div class="prompt-pending">Prompt synthesis pending</div>'
+        else:
+            prompt_section = '<div class="prompt-pending">Prompt synthesis pending</div>'
+
+        cards_html.append(f"""
+        <div class="card">
+            <div class="card-header">
+                <span class="image-id">ID: {img_id}</span>
+                <span class="category-badge">{_esc(category)}</span>
+            </div>
+            <div class="card-body">
+                <div class="image-col">
+                    <div class="image-container">{img_tag}</div>
+                    <div class="question"><strong>Question:</strong> {_esc(question)}</div>
+                </div>
+                <div class="prompt-col">{prompt_section}</div>
+            </div>
+        </div>""")
+
+    page_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MathVDiagram Benchmarking Report</title>
+<style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; padding: 24px; }}
+    .header {{ text-align: center; padding: 32px 24px; margin-bottom: 32px; background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; border-radius: 14px; }}
+    .header h1 {{ font-size: 1.9em; margin-bottom: 8px; }}
+    .header p  {{ opacity: 0.75; margin-bottom: 16px; }}
+    .stats {{ display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }}
+    .stat {{ background: rgba(255,255,255,0.15); padding: 10px 22px; border-radius: 8px; text-align: center; }}
+    .stat .num {{ font-size: 1.5em; font-weight: 700; }}
+    .stat .lbl {{ font-size: 0.78em; opacity: 0.8; }}
+    .card {{ background: white; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.07); overflow: hidden; border-left: 4px solid #7c3aed; }}
+    .card-header {{ display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #f0f0f0; background: #fafafa; }}
+    .image-id {{ font-weight: 700; font-size: 1em; color: #333; }}
+    .category-badge {{ background: #ede9fe; color: #5b21b6; padding: 3px 12px; border-radius: 20px; font-size: 0.78em; font-weight: 600; }}
+    .card-body {{ display: grid; grid-template-columns: 1fr 1fr; }}
+    .image-col {{ padding: 20px; border-right: 1px solid #f0f0f0; }}
+    .prompt-col {{ padding: 20px; }}
+    .image-container {{ text-align: center; margin-bottom: 12px; }}
+    .image-container img {{ max-width: 100%; max-height: 360px; border: 1px solid #e5e7eb; border-radius: 8px; }}
+    .no-image {{ padding: 40px; background: #f9fafb; color: #9ca3af; border-radius: 8px; text-align: center; font-size: 0.9em; }}
+    .question {{ font-size: 0.82em; color: #555; line-height: 1.5; padding: 10px 12px; background: #f8f9fa; border-radius: 6px; }}
+    .prompt-box {{ display: flex; flex-direction: column; gap: 10px; }}
+    .prompt-header {{ display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 2px solid #ede9fe; }}
+    .prompt-label {{ font-weight: 700; font-size: 0.9em; color: #7c3aed; }}
+    .prompt-meta {{ font-size: 0.75em; color: #9ca3af; }}
+    .prompt-text {{ font-size: 0.88em; line-height: 1.75; color: #1f2937; padding: 14px 16px; background: #faf5ff; border-radius: 8px; border: 1px solid #ede9fe; }}
+    .prompt-pending {{ font-size: 0.85em; color: #9ca3af; font-style: italic; padding: 20px; text-align: center; border: 1px dashed #e5e7eb; border-radius: 8px; }}
+    @media (max-width: 820px) {{ .card-body {{ grid-template-columns: 1fr; }} .image-col {{ border-right: none; border-bottom: 1px solid #f0f0f0; }} }}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>MathVDiagram Benchmarking Report</h1>
+    <p>5-provider descriptions · Llama 3.3-70B reconstruction prompts</p>
+    <div class="stats">
+        <div class="stat"><div class="num">{total}</div><div class="lbl">Total Images</div></div>
+        <div class="stat"><div class="num">{with_prompt}</div><div class="lbl">Prompts Generated</div></div>
+        <div class="stat"><div class="num">{total - with_prompt}</div><div class="lbl">Pending</div></div>
+    </div>
+</div>
+{''.join(cards_html)}
+</body>
+</html>"""
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(page_html)
+    print(f"Benchmarking report saved to {output_path}")
+    return output_path
+
+
 if __name__ == "__main__":
     generate_report()
