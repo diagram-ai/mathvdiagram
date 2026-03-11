@@ -359,17 +359,23 @@ run_aggregation = run_consensus
 # ── Benchmarking pipeline: Llama 3.3-70B prompt synthesis ────────────────────
 
 _SYNTHESIS_SYSTEM_PROMPT = """\
-You are a visual reconstruction specialist. Your job is to read multiple AI-generated
-descriptions of the same diagram and distill them into one concise, actionable
-reconstruction prompt for a diagram-generation agent.
+You are a visual reconstruction specialist. Synthesize multiple diagram descriptions
+into one concise reconstruction prompt for a diagram-generation agent.
 
-Rules:
-- Start directly with "Draw ..."
-- Be specific: exact counts, labels, positions, colors, and shapes matter
-- Be concise: 3-6 sentences maximum
-- Be complete: capture every critical visual element needed to recreate the image
-- No meta-commentary ("The descriptions agree...", "According to model X...")
-- Write as if giving instructions to a skilled illustrator who cannot see the image\
+Priority order — include what matters most first:
+1. Overall structure: what type of diagram is it, how many main elements
+2. Labels and numbers: exact text, vertex names, axis values, data values, counts
+3. Spatial layout: what is positioned where relative to what
+
+Skip entirely unless they carry specific meaning:
+- Line thickness or style (solid/dashed is fine to skip unless dashes are significant)
+- White background, absent grid lines, no shading (these are default assumptions)
+- Generic styling that doesn't affect diagram identity
+
+Format:
+- Start with "Draw ..."
+- 3-5 sentences, maximum 120 words
+- No meta-commentary ("The descriptions agree...", "According to model X...")\
 """
 
 _SYNTHESIS_PROVIDER_COLUMNS = [
