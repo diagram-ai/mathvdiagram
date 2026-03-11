@@ -16,7 +16,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from . import config
-from .api_clients import get_qwen_client
+from .api_clients import get_qwen_client, get_llama_client
 from .data_loader import load_mathvision, get_image_base64
 from .utils import call_with_retry, load_checkpoint, save_checkpoint
 
@@ -354,6 +354,168 @@ def run_consensus(
 
 # Backward compatibility alias
 run_aggregation = run_consensus
+
+
+# ── Benchmarking pipeline: Llama 3.3-70B prompt synthesis ────────────────────
+
+_SYNTHESIS_SYSTEM_PROMPT = """\
+You are a visual reconstruction specialist. Synthesize multiple diagram descriptions
+into one concise reconstruction prompt for a diagram-generation agent.
+
+Priority order — include what matters most first:
+1. Overall structure: what type of diagram is it, how many main elements
+2. Labels and numbers: exact text, vertex names, axis values, data values, counts
+3. Spatial layout: what is positioned where relative to what
+
+Skip entirely unless they carry specific meaning:
+- Line thickness or style (solid/dashed is fine to skip unless dashes are significant)
+- White background, absent grid lines, no shading (these are default assumptions)
+- Generic styling that doesn't affect diagram identity
+
+Format:
+- Start with "Draw ..."
+- 3-5 sentences, maximum 120 words
+- No meta-commentary ("The descriptions agree...", "According to model X...")\
+"""
+
+_SYNTHESIS_PROVIDER_COLUMNS = [
+    ("OpenAI", "description_openai"),
+    ("Gemini", "description_gemini"),
+    ("Claude", "description_claude"),
+    ("Qwen",   "description_qwen"),
+    ("Llama",  "description_llama"),
+]
+
+
+def _collect_valid_descriptions(row: dict) -> list[str]:
+    """Return formatted description strings for providers that succeeded."""
+    out = []
+    for name, col in _SYNTHESIS_PROVIDER_COLUMNS:
+        text = str(row.get(col, "")).strip()
+        if len(text) > 50 and not text[:30].startswith(
+            ("[ERROR", "[OPENAI", "[GEMINI", "[CLAUDE", "[QWEN", "[LLAMA", "[API", "[QUOTA")
+        ):
+            out.append(f"[{name}]:\n{text}")
+    return out
+
+
+def synthesize_single_image(llama_client, row: dict) -> str:
+    """Use Llama 3.3-70B to produce a concise reconstruction prompt from 5 descriptions."""
+    descriptions = _collect_valid_descriptions(row)
+    if not descriptions:
+        return "[SYNTHESIS_ERROR: No valid descriptions available]"
+
+    user_message = (
+        f"Here are {len(descriptions)} independent visual descriptions of the same diagram:\n\n"
+        + "\n\n".join(descriptions)
+        + f"\n\nQuestion context (do NOT solve): {row.get('question', '')}\n\n"
+        "Synthesize these into one concise reconstruction prompt starting with \"Draw\"."
+    )
+
+    def _call():
+        response = llama_client.chat.completions.create(
+            model=config.LLAMA_JUDGE_MODEL,
+            messages=[
+                {"role": "system", "content": _SYNTHESIS_SYSTEM_PROMPT},
+                {"role": "user",   "content": user_message},
+            ],
+            max_tokens=config.PROMPT_SYNTH_MAX_TOKENS,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+
+    start = time.time()
+    result = call_with_retry(_call, max_retries=3)
+    elapsed_ms = (time.time() - start) * 1000
+    logger.info(
+        "[TIMING] llama_judge.synthesize response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        len(result) if isinstance(result, str) else 0,
+    )
+    return result
+
+
+def run_prompt_synthesis(
+    input_csv: str | None = None,
+    output_csv: str | None = None,
+    resume: bool = True,
+    delay: float | None = None,
+) -> pd.DataFrame:
+    """
+    Synthesize a concise visual reconstruction prompt for every image using
+    Llama 3.3-70B (text-only, via Groq) as the judge.
+
+    Reads descriptions.csv (5 provider columns), writes concise_prompts.csv.
+    Resumable — skips already-processed image IDs on restart.
+
+    Args:
+        input_csv: Path to descriptions CSV. Defaults to config.DESCRIPTIONS_CSV.
+        output_csv: Destination CSV. Defaults to config.CONCISE_PROMPTS_CSV.
+        resume: Resume from existing checkpoint.
+        delay: Seconds between API calls.
+
+    Returns:
+        DataFrame with columns: image_id, question, category,
+        concise_prompt, n_descriptions_used.
+    """
+    input_csv  = input_csv  or config.DESCRIPTIONS_CSV
+    output_csv = output_csv or config.CONCISE_PROMPTS_CSV
+    delay      = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+
+    if not os.path.exists(input_csv):
+        print(f"ERROR: {input_csv} not found. Run the describe step first.")
+        return None
+
+    df = pd.read_csv(input_csv)
+    print(f"Loaded {len(df)} rows for prompt synthesis")
+
+    results, processed_ids = load_checkpoint(output_csv) if resume else ([], set())
+    if processed_ids:
+        print(f"Resuming: {len(processed_ids)} already synthesized")
+
+    llama_client = get_llama_client()
+    error_count  = 0
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Synthesizing prompts (Llama 3.3-70B)"):
+        image_id = row["image_id"]
+        if image_id in processed_ids:
+            continue
+
+        time.sleep(delay)
+        n_valid = len(_collect_valid_descriptions(row.to_dict()))
+
+        try:
+            concise_prompt = synthesize_single_image(llama_client, row.to_dict())
+            if str(concise_prompt)[:5].startswith("["):
+                error_count += 1
+        except Exception as e:
+            concise_prompt = f"[EXCEPTION: {str(e)[:200]}]"
+            error_count += 1
+
+        results.append({
+            "image_id":            image_id,
+            "question":            row.get("question", ""),
+            "category":            row.get("category", ""),
+            "concise_prompt":      concise_prompt,
+            "n_descriptions_used": n_valid,
+        })
+        processed_ids.add(image_id)
+
+        if len(results) % config.CHECKPOINT_EVERY == 0:
+            save_checkpoint(results, output_csv)
+            print(f"  Checkpoint: {len(results)} images")
+
+    save_checkpoint(results, output_csv)
+    result_df = pd.DataFrame(results)
+
+    successful = result_df["concise_prompt"].apply(
+        lambda x: isinstance(x, str) and len(x) > 20 and not str(x)[:5].startswith("[")
+    ).sum()
+    print(f"\nSynthesis complete:")
+    print(f"  Total:      {len(result_df)}")
+    print(f"  Successful: {successful}")
+    print(f"  Errors:     {error_count}")
+    return result_df
 
 
 if __name__ == "__main__":
