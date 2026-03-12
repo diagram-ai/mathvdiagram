@@ -382,7 +382,6 @@ _SYNTHESIS_PROVIDER_COLUMNS = [
     ("OpenAI", "description_openai"),
     ("Gemini", "description_gemini"),
     ("Claude", "description_claude"),
-    ("Qwen",   "description_qwen"),
     ("Llama",  "description_llama"),
 ]
 
@@ -400,10 +399,11 @@ def _collect_valid_descriptions(row: dict) -> list[str]:
 
 
 def synthesize_single_image(llama_client, row: dict) -> str:
-    """Use Llama 3.3-70B to produce a concise reconstruction prompt from 5 descriptions."""
+    """Use Llama 3.3-70B to produce a concise reconstruction prompt from 4 descriptions."""
     descriptions = _collect_valid_descriptions(row)
-    if not descriptions:
-        return "[SYNTHESIS_ERROR: No valid descriptions available]"
+    if len(descriptions) < len(_SYNTHESIS_PROVIDER_COLUMNS):
+        missing = len(_SYNTHESIS_PROVIDER_COLUMNS) - len(descriptions)
+        return f"[SYNTHESIS_SKIPPED: Only {len(descriptions)}/{len(_SYNTHESIS_PROVIDER_COLUMNS)} providers available — {missing} missing]"
 
     user_message = (
         f"Here are {len(descriptions)} independent visual descriptions of the same diagram:\n\n"

@@ -14,7 +14,7 @@ import pandas as pd
 
 from . import config
 from .classify import run_classification
-from .describe import run_description
+from .describe import run_description, retry_failed_descriptions
 from .consensus import run_consensus, run_prompt_synthesis
 from .report import generate_report, generate_benchmarking_report
 from .data_loader import prepare_all_images
@@ -160,6 +160,7 @@ def run_benchmarking_pipeline(
     delay: float | None = None,
     skip_prep: bool = False,
     skip_describe: bool = False,
+    skip_retry: bool = False,
     skip_synthesize: bool = False,
 ) -> None:
     """
@@ -167,7 +168,7 @@ def run_benchmarking_pipeline(
 
     Steps:
       1. prepare_all_images()   — build all_images.csv (no API calls)
-      2. run_description()      — 5 VLM providers in parallel
+      2. run_description()      — 4 VLM providers in parallel
       3. run_prompt_synthesis() — Llama 3.3-70B judge → concise_prompt
       4. generate_benchmarking_report() — image + concise_prompt HTML
 
@@ -197,6 +198,12 @@ def run_benchmarking_pipeline(
         print("STEP 2: Generating descriptions (5 providers in parallel)")
         print("=" * 60)
         run_description(input_csv=config.ALL_IMAGES_CSV, resume=resume, delay=delay)
+
+    if not skip_retry:
+        print("\n" + "=" * 60)
+        print("STEP 2b: Retrying any failed provider descriptions")
+        print("=" * 60)
+        retry_failed_descriptions(delay=delay)
 
     if skip_synthesize and os.path.exists(config.CONCISE_PROMPTS_CSV):
         print(f"Skipping synthesis (using existing {config.CONCISE_PROMPTS_CSV})")

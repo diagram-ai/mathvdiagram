@@ -19,7 +19,6 @@ from .api_clients import (
     get_openai_client,
     get_gemini_model,
     get_claude_client,
-    get_qwen_client,
     get_llama_client,
 )
 from .data_loader import load_mathvision, get_image_pil, get_image_base64
@@ -161,51 +160,6 @@ def get_claude_description(client, image_b64: str, question_text: str, category:
     return result
 
 
-def get_qwen_description(client, image_b64: str, question_text: str, category: str = "unknown") -> str:
-    """Get description from Qwen vision model via OpenRouter."""
-    prompt = _build_description_prompt(category)
-
-    def _call():
-        response = client.chat.completions.create(
-            model=config.QWEN_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": prompt + "\n\nDO NOT solve the problem or answer the question. ONLY describe what you see in the image visually.",
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"Image category: {category}\nQuestion context (do NOT answer): {question_text}\n\nDescribe every visual element in this mathematical diagram.",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{image_b64}"},
-                        },
-                    ],
-                },
-            ],
-            max_tokens=config.DESCRIPTION_MAX_TOKENS,
-            timeout=60,
-        )
-        return response.choices[0].message.content
-
-    start = time.time()
-    result = call_with_retry(_call)
-    elapsed_ms = (time.time() - start) * 1000
-    response_len = len(result) if isinstance(result, str) else 0
-    logger.info(
-        "[TIMING] qwen.describe response_ms=%.1f response_len=%d",
-        elapsed_ms,
-        response_len,
-    )
-    if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
-        return f"[QWEN ERROR: {result}]"
-    return result
-
-
 def get_llama_description(client, image_b64: str, question_text: str, category: str = "unknown") -> str:
     """Get description from Llama vision model via Groq."""
     prompt = _build_description_prompt(category)
@@ -278,7 +232,7 @@ def run_description(
     input_csv: str | None = None,
     resume: bool = True,
     delay: float | None = None,
-    workers: int = 5,
+    workers: int = 4,
 ):
     """
     Generate descriptions for all math-classified images using multiple providers.
@@ -291,7 +245,7 @@ def run_description(
     Returns:
         DataFrame with columns: image_id, question, category,
         description_openai, description_gemini, description_claude,
-        description_qwen, description_llama, error_log
+        description_llama, error_log
     """
     input_csv = input_csv or config.CLASSIFICATION_CSV
     delay = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
@@ -322,12 +276,11 @@ def run_description(
     openai_client = get_openai_client()
     gemini_model = get_gemini_model()
     claude_client = get_claude_client()
-    qwen_client = get_qwen_client()
     llama_client = get_llama_client()
 
     processed_count = 0
 
-    providers = ["openai", "gemini", "claude", "qwen", "llama"]
+    providers = ["openai", "gemini", "claude", "llama"]
 
     for _, row in tqdm(
         df.iterrows(),
@@ -350,7 +303,6 @@ def run_description(
             "description_openai": "",
             "description_gemini": "",
             "description_claude": "",
-            "description_qwen": "",
             "description_llama": "",
             "error_log": "",
         }
@@ -373,7 +325,6 @@ def run_description(
             "openai": (get_openai_description, openai_client, img_b64, question_text, category),
             "gemini": (get_gemini_description, gemini_model, img_pil, question_text, category),
             "claude": (get_claude_description, claude_client, img_b64, question_text, category),
-            "qwen":   (get_qwen_description,   qwen_client,   img_b64, question_text, category),
             "llama":  (get_llama_description,  llama_client,  img_b64, question_text, category),
         }
 
@@ -410,6 +361,107 @@ def run_description(
 
     print(f"\nDescriptions complete: {len(result_df)} images")
     return result_df
+
+
+def retry_failed_descriptions(
+    delay: float | None = None,
+) -> pd.DataFrame | None:
+    """
+    Re-run description generation for any row/provider pair in descriptions.csv
+    that returned an error or empty response. Updates the CSV in-place.
+    Only retries active providers (openai, gemini, claude, llama).
+    """
+    if not os.path.exists(config.DESCRIPTIONS_CSV):
+        print("No descriptions.csv found — nothing to retry.")
+        return None
+
+    delay = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+    df = pd.read_csv(config.DESCRIPTIONS_CSV)
+
+    active_providers = ["openai", "gemini", "claude", "llama"]
+
+    retry_map: dict[int, list[str]] = {}
+    for provider in active_providers:
+        col = f"description_{provider}"
+        if col not in df.columns:
+            continue
+        for idx in df.index[~df[col].apply(_is_valid_description)]:
+            retry_map.setdefault(idx, []).append(provider)
+
+    if not retry_map:
+        print("No failed descriptions found — all providers clean.")
+        return df
+
+    provider_counts: dict[str, int] = {}
+    for providers in retry_map.values():
+        for p in providers:
+            provider_counts[p] = provider_counts.get(p, 0) + 1
+
+    print(f"Retrying {len(retry_map)} images:")
+    for p, count in sorted(provider_counts.items()):
+        print(f"  {p}: {count} images")
+
+    needed = set(p for ps in retry_map.values() for p in ps)
+    clients: dict = {}
+    if "openai" in needed:
+        clients["openai"] = get_openai_client()
+    if "gemini" in needed:
+        clients["gemini"] = get_gemini_model()
+    if "claude" in needed:
+        clients["claude"] = get_claude_client()
+    if "llama" in needed:
+        clients["llama"] = get_llama_client()
+
+    load_mathvision()
+
+    updated = 0
+    for idx, providers_to_retry in tqdm(retry_map.items(), desc="Retrying failed"):
+        row = df.loc[idx]
+        image_id = row["image_id"]
+        question_text = str(row.get("question", ""))
+        category = str(row.get("category", "unknown"))
+        if category == "nan":
+            category = "unknown"
+
+        img_pil = get_image_pil(image_id)
+        if img_pil is None:
+            continue
+        img_b64, _ = get_image_base64(image_id)
+
+        time.sleep(delay)
+
+        provider_calls: dict = {}
+        for p in providers_to_retry:
+            if p == "openai":
+                provider_calls[p] = (get_openai_description, clients["openai"], img_b64, question_text, category)
+            elif p == "gemini":
+                provider_calls[p] = (get_gemini_description, clients["gemini"], img_pil, question_text, category)
+            elif p == "claude":
+                provider_calls[p] = (get_claude_description, clients["claude"], img_b64, question_text, category)
+            elif p == "llama":
+                provider_calls[p] = (get_llama_description, clients["llama"], img_b64, question_text, category)
+
+        with ThreadPoolExecutor(max_workers=len(provider_calls)) as pool:
+            futures = {
+                name: pool.submit(fn, *args)
+                for name, (fn, *args) in provider_calls.items()
+            }
+            for name, future in futures.items():
+                try:
+                    result = future.result()
+                    if _is_valid_description(result):
+                        df.at[idx, f"description_{name}"] = result
+                except Exception as e:
+                    logger.warning("Retry failed for %s on image %s: %s", name, image_id, e)
+
+        updated += 1
+        if updated % config.CHECKPOINT_EVERY == 0:
+            df.to_csv(config.DESCRIPTIONS_CSV, index=False)
+            print(f"  Retry checkpoint: {updated} images updated")
+
+    df.to_csv(config.DESCRIPTIONS_CSV, index=False)
+    print(f"\nRetry complete: {updated} images processed")
+    return df
 
 
 if __name__ == "__main__":

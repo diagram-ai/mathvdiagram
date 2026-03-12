@@ -8,7 +8,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-# --- Qwen Aggregation (via OpenRouter, OpenAI-compatible API) ---
+# --- Qwen / OpenRouter (legacy run_consensus only; not used in benchmarking pipeline) ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_API_BASE = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen/qwen3-vl-235b-a22b-instruct")
