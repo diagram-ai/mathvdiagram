@@ -356,7 +356,7 @@ def run_description(
     # Print summary
     for provider in providers:
         col = f"description_{provider}"
-        valid = result_df[col].apply(lambda x: _is_valid_description(x)).sum()
+        valid = result_df[col].apply(_is_valid_description).sum()
         print(f"  {provider}: {valid}/{len(result_df)} successful")
 
     print(f"\nDescriptions complete: {len(result_df)} images")
