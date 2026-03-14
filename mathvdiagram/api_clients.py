@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 try:
     import google.generativeai as genai  # type: ignore
 except Exception:  # pragma: no cover
