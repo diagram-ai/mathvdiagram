@@ -87,6 +87,105 @@ def get_image_bytes(image_id) -> bytes | None:
     return buf.getvalue()
 
 
+def load_datikz(split: str | None = None) -> pd.DataFrame:
+    """
+    Load the DaTikZ v3 dataset from HuggingFace and return as a DataFrame.
+
+    Schema: caption, code, image, pdf, uri, origin.
+    Images are PIL objects in the `image` column.
+    """
+    split = split or config.DATIKZ_SPLIT
+    cache_key = f"{config.DATIKZ_DATASET_NAME}_{split}"
+
+    if cache_key in _dataset_cache:
+        return _dataset_cache[cache_key]["df"]
+
+    print(f"Loading dataset {config.DATIKZ_DATASET_NAME} (split={split}) from HuggingFace...")
+    ds = load_dataset(config.DATIKZ_DATASET_NAME, split=split)
+    print(f"Loaded {len(ds)} rows")
+
+    images = {}
+    rows = []
+    for i, item in enumerate(ds):
+        img_id = str(i)
+        images[img_id] = item["image"]
+        rows.append({
+            "id":      img_id,
+            "caption": item.get("caption", ""),
+            "code":    item.get("code", ""),
+            "uri":     item.get("uri", ""),
+            "origin":  item.get("origin", ""),
+        })
+
+    df = pd.DataFrame(rows)
+    _dataset_cache[cache_key] = {"df": df, "images": images}
+    return df
+
+
+def prepare_datikz_images(
+    output_csv: str | None = None,
+    num_samples: int | None = None,
+    test_ids: list | None = None,
+) -> pd.DataFrame:
+    """
+    Build a pass-through CSV for the DaTikZ description step.
+
+    Uses `caption` as the question context for VLMs (no math question exists).
+    Ground truth TikZ `code` is preserved for downstream evaluation.
+
+    Args:
+        output_csv: Destination path. Defaults to config.DATIKZ_ALL_IMAGES_CSV.
+        num_samples: Limit to first N rows (useful for testing).
+        test_ids: Only include specific image IDs.
+
+    Returns:
+        DataFrame with columns: image_id, question, is_math, final_category, tikz_code.
+    """
+    output_csv = output_csv or config.DATIKZ_ALL_IMAGES_CSV
+    os.makedirs(os.path.dirname(output_csv), exist_ok=True)
+
+    df = load_datikz()
+    if test_ids:
+        df = df[df["id"].astype(str).isin([str(i) for i in test_ids])]
+    elif num_samples:
+        df = df.head(num_samples)
+
+    result = pd.DataFrame({
+        "image_id":       df["id"].values,
+        "question":       df["caption"].values,
+        "is_math":        True,
+        "final_category": df["origin"].fillna("unknown").values,
+        "tikz_code":      df["code"].values,
+    })
+
+    result.to_csv(output_csv, index=False)
+    print(f"Prepared {len(result)} DaTikZ images → {output_csv}")
+    return result
+
+
+def get_datikz_image_pil(image_id) -> Image.Image | None:
+    """Get a PIL Image for a given DaTikZ image ID."""
+    key = str(image_id)
+    cache_key = f"{config.DATIKZ_DATASET_NAME}_{config.DATIKZ_SPLIT}"
+    cache = _dataset_cache.get(cache_key)
+    if cache:
+        img = cache["images"].get(key)
+        if img is not None:
+            return img.convert("RGB")
+    return None
+
+
+def get_datikz_image_base64(image_id) -> tuple[str | None, str]:
+    """Get base64-encoded image and media type for a given DaTikZ image ID."""
+    img = get_datikz_image_pil(image_id)
+    if img is None:
+        return None, f"DaTikZ image not found for id: {image_id}"
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return b64, "image/png"
+
+
 def prepare_all_images(
     output_csv: str | None = None,
     num_samples: int | None = None,

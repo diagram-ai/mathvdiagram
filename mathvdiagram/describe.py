@@ -228,38 +228,56 @@ def _is_valid_description(text) -> bool:
     return not any(marker in head for marker in error_markers)
 
 
+_ALL_PROVIDER_CALLS = {
+    "openai": lambda clients, img_b64, img_pil, q, cat: (get_openai_description, clients["openai"], img_b64, q, cat),
+    "gemini": lambda clients, img_b64, img_pil, q, cat: (get_gemini_description, clients["gemini"], img_pil, q, cat),
+    "claude": lambda clients, img_b64, img_pil, q, cat: (get_claude_description, clients["claude"], img_b64, q, cat),
+    "llama":  lambda clients, img_b64, img_pil, q, cat: (get_llama_description,  clients["llama"],  img_b64, q, cat),
+}
+
+
 def run_description(
     input_csv: str | None = None,
+    output_csv: str | None = None,
     resume: bool = True,
     delay: float | None = None,
-    workers: int = 4,
+    workers: int | None = None,
+    providers: list[str] | None = None,
+    image_loader=None,
 ):
     """
-    Generate descriptions for all math-classified images using multiple providers.
+    Generate descriptions for images using the specified VLM providers.
 
     Args:
-        input_csv: Path to classification CSV. Defaults to config.CLASSIFICATION_CSV.
+        input_csv: Path to images CSV. Defaults to config.CLASSIFICATION_CSV.
+        output_csv: Destination CSV. Defaults to config.DESCRIPTIONS_CSV.
         resume: Resume from existing checkpoint.
         delay: Seconds between API calls.
+        workers: ThreadPoolExecutor workers. Defaults to len(providers).
+        providers: Subset of ["openai", "gemini", "claude", "llama"].
+                   Defaults to all 4.
+        image_loader: Optional callable(image_id) -> (pil, b64). Defaults to
+                      MathVision loaders. Pass for DaTikZ or other datasets.
 
     Returns:
         DataFrame with columns: image_id, question, category,
-        description_openai, description_gemini, description_claude,
-        description_llama, error_log
+        description_<provider>..., error_log
     """
-    input_csv = input_csv or config.CLASSIFICATION_CSV
-    delay = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+    providers = providers or ["openai", "gemini", "claude", "llama"]
+    input_csv  = input_csv  or config.CLASSIFICATION_CSV
+    output_csv = output_csv or config.DESCRIPTIONS_CSV
+    delay      = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+    workers    = workers or len(providers)
 
-    # Ensure HF dataset is loaded so images are available
-    load_mathvision()
+    # Ensure MathVision dataset is loaded (no-op for DaTikZ flows)
+    if image_loader is None:
+        load_mathvision()
 
-    print(f"Loading classified images from {input_csv}...")
+    print(f"Loading images from {input_csv}...")
     df = pd.read_csv(input_csv)
-    # Only process images classified as math
     df = df[df["is_math"] == True].copy()
-    print(f"Math images to describe: {len(df)}")
+    print(f"Images to describe: {len(df)}")
 
-    # Check for category data
     has_categories = "final_category" in df.columns
     if has_categories:
         print("Category-aware prompting enabled:")
@@ -268,19 +286,22 @@ def run_description(
     else:
         print("No category data — using generic prompt for all images")
 
-    results, processed_ids = load_checkpoint(config.DESCRIPTIONS_CSV) if resume else ([], set())
+    results, processed_ids = load_checkpoint(output_csv) if resume else ([], set())
     if processed_ids:
         print(f"Resuming: {len(processed_ids)} already described")
 
-    # Initialize clients
-    openai_client = get_openai_client()
-    gemini_model = get_gemini_model()
-    claude_client = get_claude_client()
-    llama_client = get_llama_client()
+    # Initialize only the clients needed
+    clients: dict = {}
+    if "openai" in providers:
+        clients["openai"] = get_openai_client()
+    if "gemini" in providers:
+        clients["gemini"] = get_gemini_model()
+    if "claude" in providers:
+        clients["claude"] = get_claude_client()
+    if "llama" in providers:
+        clients["llama"] = get_llama_client()
 
     processed_count = 0
-
-    providers = ["openai", "gemini", "claude", "llama"]
 
     for _, row in tqdm(
         df.iterrows(),
@@ -291,23 +312,21 @@ def run_description(
         if image_id in processed_ids:
             continue
 
-        question_text = row["question"]
+        question_text = str(row.get("question", ""))
         category = str(row.get("final_category", row.get("majority_category", "unknown")))
         if category == "nan" or pd.isna(category):
             category = "unknown"
 
-        entry = {
-            "image_id": image_id,
-            "question": question_text,
-            "category": category,
-            "description_openai": "",
-            "description_gemini": "",
-            "description_claude": "",
-            "description_llama": "",
-            "error_log": "",
-        }
+        entry = {"image_id": image_id, "question": question_text, "category": category, "error_log": ""}
+        for p in providers:
+            entry[f"description_{p}"] = ""
 
-        img_pil = get_image_pil(image_id)
+        if image_loader is not None:
+            img_pil, img_b64 = image_loader(image_id)
+        else:
+            img_pil = get_image_pil(image_id)
+            img_b64, _ = get_image_base64(image_id) if img_pil else (None, None)
+
         if img_pil is None:
             entry["error_log"] = f"Image not found for id: {image_id}"
             results.append(entry)
@@ -315,17 +334,12 @@ def run_description(
             processed_count += 1
             continue
 
-        img_b64, _ = get_image_base64(image_id)
-
         errors = []
-
         time.sleep(delay)
 
         provider_calls = {
-            "openai": (get_openai_description, openai_client, img_b64, question_text, category),
-            "gemini": (get_gemini_description, gemini_model, img_pil, question_text, category),
-            "claude": (get_claude_description, claude_client, img_b64, question_text, category),
-            "llama":  (get_llama_description,  llama_client,  img_b64, question_text, category),
+            p: _ALL_PROVIDER_CALLS[p](clients, img_b64, img_pil, question_text, category)
+            for p in providers
         }
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -341,19 +355,17 @@ def run_description(
                     errors.append(f"{name}: {str(e)[:100]}")
 
         entry["error_log"] = "; ".join(errors) if errors else ""
-
         results.append(entry)
         processed_ids.add(image_id)
         processed_count += 1
 
         if processed_count % config.CHECKPOINT_EVERY == 0:
-            save_checkpoint(results, config.DESCRIPTIONS_CSV)
+            save_checkpoint(results, output_csv)
             print(f"  Checkpoint: {processed_count} images")
 
-    save_checkpoint(results, config.DESCRIPTIONS_CSV)
+    save_checkpoint(results, output_csv)
     result_df = pd.DataFrame(results)
 
-    # Print summary
     for provider in providers:
         col = f"description_{provider}"
         valid = result_df[col].apply(lambda x: _is_valid_description(x)).sum()
@@ -365,20 +377,29 @@ def run_description(
 
 def retry_failed_descriptions(
     delay: float | None = None,
+    descriptions_csv: str | None = None,
+    providers: list[str] | None = None,
+    image_loader=None,
 ) -> pd.DataFrame | None:
     """
-    Re-run description generation for any row/provider pair in descriptions.csv
-    that returned an error or empty response. Updates the CSV in-place.
-    Only retries active providers (openai, gemini, claude, llama).
+    Re-run description generation for any row/provider pair that errored or is empty.
+    Updates the CSV in-place.
+
+    Args:
+        delay: Seconds between API calls.
+        descriptions_csv: Path to CSV to patch. Defaults to config.DESCRIPTIONS_CSV.
+        providers: Which providers to check/retry. Defaults to all 4 active providers.
+        image_loader: Optional callable(image_id) -> (pil, b64). Defaults to MathVision loaders.
     """
-    if not os.path.exists(config.DESCRIPTIONS_CSV):
-        print("No descriptions.csv found — nothing to retry.")
+    descriptions_csv = descriptions_csv or config.DESCRIPTIONS_CSV
+    if not os.path.exists(descriptions_csv):
+        print(f"No {descriptions_csv} found — nothing to retry.")
         return None
 
     delay = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
-    df = pd.read_csv(config.DESCRIPTIONS_CSV)
+    df = pd.read_csv(descriptions_csv)
 
-    active_providers = ["openai", "gemini", "claude", "llama"]
+    active_providers = providers or ["openai", "gemini", "claude", "llama"]
 
     retry_map: dict[int, list[str]] = {}
     for provider in active_providers:
@@ -412,7 +433,8 @@ def retry_failed_descriptions(
     if "llama" in needed:
         clients["llama"] = get_llama_client()
 
-    load_mathvision()
+    if image_loader is None:
+        load_mathvision()
 
     updated = 0
     for idx, providers_to_retry in tqdm(retry_map.items(), desc="Retrying failed"):
@@ -423,23 +445,21 @@ def retry_failed_descriptions(
         if category == "nan":
             category = "unknown"
 
-        img_pil = get_image_pil(image_id)
+        if image_loader is not None:
+            img_pil, img_b64 = image_loader(image_id)
+        else:
+            img_pil = get_image_pil(image_id)
+            img_b64, _ = get_image_base64(image_id) if img_pil else (None, None)
+
         if img_pil is None:
             continue
-        img_b64, _ = get_image_base64(image_id)
 
         time.sleep(delay)
 
-        provider_calls: dict = {}
-        for p in providers_to_retry:
-            if p == "openai":
-                provider_calls[p] = (get_openai_description, clients["openai"], img_b64, question_text, category)
-            elif p == "gemini":
-                provider_calls[p] = (get_gemini_description, clients["gemini"], img_pil, question_text, category)
-            elif p == "claude":
-                provider_calls[p] = (get_claude_description, clients["claude"], img_b64, question_text, category)
-            elif p == "llama":
-                provider_calls[p] = (get_llama_description, clients["llama"], img_b64, question_text, category)
+        provider_calls: dict = {
+            p: _ALL_PROVIDER_CALLS[p](clients, img_b64, img_pil, question_text, category)
+            for p in providers_to_retry
+        }
 
         with ThreadPoolExecutor(max_workers=len(provider_calls)) as pool:
             futures = {
@@ -456,10 +476,10 @@ def retry_failed_descriptions(
 
         updated += 1
         if updated % config.CHECKPOINT_EVERY == 0:
-            df.to_csv(config.DESCRIPTIONS_CSV, index=False)
+            df.to_csv(descriptions_csv, index=False)
             print(f"  Retry checkpoint: {updated} images updated")
 
-    df.to_csv(config.DESCRIPTIONS_CSV, index=False)
+    df.to_csv(descriptions_csv, index=False)
     print(f"\nRetry complete: {updated} images processed")
     return df
 

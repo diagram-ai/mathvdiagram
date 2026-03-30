@@ -249,7 +249,10 @@ def generate_report(output_path: str | None = None):
     return output_path
 
 
-def generate_benchmarking_report(output_path: str | None = None) -> str:
+def generate_benchmarking_report(
+    output_path: str | None = None,
+    input_csv: str | None = None,
+) -> str:
     """
     Generate benchmarking_report.html for the classification-free pipeline.
 
@@ -258,16 +261,18 @@ def generate_benchmarking_report(output_path: str | None = None) -> str:
 
     Args:
         output_path: Destination HTML path. Defaults to config.BENCHMARKING_REPORT.
+        input_csv: Path to concise_prompts CSV. Defaults to config.CONCISE_PROMPTS_CSV.
 
     Returns:
         Path to the written HTML file.
     """
     output_path = output_path or config.BENCHMARKING_REPORT
+    input_csv   = input_csv   or config.CONCISE_PROMPTS_CSV
 
     load_mathvision()
 
-    all_images_df = pd.read_csv(config.ALL_IMAGES_CSV)       if os.path.exists(config.ALL_IMAGES_CSV)       else pd.DataFrame()
-    prompts_df    = pd.read_csv(config.CONCISE_PROMPTS_CSV)  if os.path.exists(config.CONCISE_PROMPTS_CSV)  else pd.DataFrame()
+    all_images_df = pd.read_csv(config.ALL_IMAGES_CSV) if os.path.exists(config.ALL_IMAGES_CSV) else pd.DataFrame()
+    prompts_df    = pd.read_csv(input_csv)             if os.path.exists(input_csv)             else pd.DataFrame()
 
     prompt_map = {}
     if not prompts_df.empty:

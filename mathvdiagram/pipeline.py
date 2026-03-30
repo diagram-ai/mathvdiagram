@@ -15,9 +15,9 @@ import pandas as pd
 from . import config
 from .classify import run_classification
 from .describe import run_description, retry_failed_descriptions
-from .consensus import run_consensus, run_prompt_synthesis
+from .consensus import run_consensus, run_prompt_synthesis, _SYNTHESIS_PROVIDER_COLUMNS
 from .report import generate_report, generate_benchmarking_report
-from .data_loader import prepare_all_images
+from .data_loader import prepare_all_images, prepare_datikz_images, get_datikz_image_pil, get_datikz_image_base64
 from .dataset_helper.pipeline import run_full_classification
 
 
@@ -224,6 +224,110 @@ def run_benchmarking_pipeline(
     print(f"  All images CSV:   {config.ALL_IMAGES_CSV}")
     print(f"  Descriptions:     {config.DESCRIPTIONS_CSV}")
     print(f"  Concise prompts:  {config.CONCISE_PROMPTS_CSV}")
+    print(f"  Report:           {report_path}")
+
+
+def run_datikz_pipeline(
+    num_samples: int | None = None,
+    test_ids: list | None = None,
+    resume: bool = True,
+    delay: float | None = None,
+    providers: list[str] | None = None,
+    skip_prep: bool = False,
+    skip_describe: bool = False,
+    skip_retry: bool = False,
+    skip_synthesize: bool = False,
+) -> None:
+    """
+    Benchmarking pipeline for the DaTikZ v3 dataset (nllg/datikz-v3).
+
+    Isolated from the MathVision pipeline — all outputs go to output/datikz/.
+
+    Steps:
+      1. prepare_datikz_images()   — build output/datikz/all_images.csv
+      2. run_description()         — Gemini + Llama (default) in parallel
+      2b. retry_failed_descriptions() — patch any errors in-place
+      3. run_prompt_synthesis()    — Llama 3.3-70B judge → concise_prompt
+      4. generate_benchmarking_report() — image + prompt HTML
+
+    Args:
+        num_samples: Limit to first N images. None = all ~148k.
+        test_ids: Only process specific image IDs.
+        resume: Resume each step from existing checkpoints.
+        delay: Seconds between API calls.
+        providers: VLM providers to use. Defaults to ["gemini", "llama"].
+        skip_prep: Skip step 1 if all_images.csv already exists.
+        skip_describe: Skip step 2 if descriptions.csv already exists.
+        skip_retry: Skip step 2b retry pass.
+        skip_synthesize: Skip step 3 if concise_prompts.csv already exists.
+    """
+    providers = providers or ["gemini", "llama"]
+    os.makedirs(config.DATIKZ_OUTPUT_DIR, exist_ok=True)
+
+    provider_columns = [(p.capitalize(), f"description_{p}") for p in providers]
+
+    def _datikz_image_loader(image_id):
+        pil = get_datikz_image_pil(image_id)
+        b64, _ = get_datikz_image_base64(image_id) if pil else (None, None)
+        return pil, b64
+
+    if skip_prep and os.path.exists(config.DATIKZ_ALL_IMAGES_CSV):
+        print(f"Skipping prep (using existing {config.DATIKZ_ALL_IMAGES_CSV})")
+    else:
+        print("=" * 60)
+        print("DATIKZ STEP 1: Preparing images from nllg/datikz-v3")
+        print("=" * 60)
+        prepare_datikz_images(num_samples=num_samples, test_ids=test_ids)
+
+    if skip_describe and os.path.exists(config.DATIKZ_DESCRIPTIONS_CSV):
+        print(f"Skipping describe (using existing {config.DATIKZ_DESCRIPTIONS_CSV})")
+    else:
+        print("\n" + "=" * 60)
+        print(f"DATIKZ STEP 2: Generating descriptions ({', '.join(providers)})")
+        print("=" * 60)
+        run_description(
+            input_csv=config.DATIKZ_ALL_IMAGES_CSV,
+            output_csv=config.DATIKZ_DESCRIPTIONS_CSV,
+            resume=resume,
+            delay=delay,
+            providers=providers,
+            image_loader=_datikz_image_loader,
+        )
+
+    if not skip_retry:
+        print("\n" + "=" * 60)
+        print("DATIKZ STEP 2b: Retrying any failed provider descriptions")
+        print("=" * 60)
+        retry_failed_descriptions(delay=delay, descriptions_csv=config.DATIKZ_DESCRIPTIONS_CSV, providers=providers)
+
+    if skip_synthesize and os.path.exists(config.DATIKZ_CONCISE_PROMPTS_CSV):
+        print(f"Skipping synthesis (using existing {config.DATIKZ_CONCISE_PROMPTS_CSV})")
+    else:
+        print("\n" + "=" * 60)
+        print("DATIKZ STEP 3: Synthesizing concise prompts (Llama 3.3-70B judge)")
+        print("=" * 60)
+        run_prompt_synthesis(
+            input_csv=config.DATIKZ_DESCRIPTIONS_CSV,
+            output_csv=config.DATIKZ_CONCISE_PROMPTS_CSV,
+            resume=resume,
+            delay=delay,
+            provider_columns=provider_columns,
+        )
+
+    print("\n" + "=" * 60)
+    print("DATIKZ STEP 4: Generating HTML report")
+    print("=" * 60)
+    report_path = generate_benchmarking_report(
+        input_csv=config.DATIKZ_CONCISE_PROMPTS_CSV,
+        output_path=config.DATIKZ_REPORT,
+    )
+
+    print("\n" + "=" * 60)
+    print("DATIKZ PIPELINE COMPLETE")
+    print("=" * 60)
+    print(f"  All images CSV:   {config.DATIKZ_ALL_IMAGES_CSV}")
+    print(f"  Descriptions:     {config.DATIKZ_DESCRIPTIONS_CSV}")
+    print(f"  Concise prompts:  {config.DATIKZ_CONCISE_PROMPTS_CSV}")
     print(f"  Report:           {report_path}")
 
 

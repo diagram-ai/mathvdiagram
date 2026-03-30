@@ -386,10 +386,10 @@ _SYNTHESIS_PROVIDER_COLUMNS = [
 ]
 
 
-def _collect_valid_descriptions(row: dict) -> list[str]:
+def _collect_valid_descriptions(row: dict, provider_columns: list | None = None) -> list[str]:
     """Return formatted description strings for providers that succeeded."""
     out = []
-    for name, col in _SYNTHESIS_PROVIDER_COLUMNS:
+    for name, col in (provider_columns or _SYNTHESIS_PROVIDER_COLUMNS):
         text = str(row.get(col, "")).strip()
         if len(text) > 50 and not text[:30].startswith(
             ("[ERROR", "[OPENAI", "[GEMINI", "[CLAUDE", "[QWEN", "[LLAMA", "[API", "[QUOTA")
@@ -398,12 +398,14 @@ def _collect_valid_descriptions(row: dict) -> list[str]:
     return out
 
 
-def synthesize_single_image(llama_client, row: dict) -> str:
-    """Use Llama 3.3-70B to produce a concise reconstruction prompt from 4 descriptions."""
-    descriptions = _collect_valid_descriptions(row)
-    if len(descriptions) < len(_SYNTHESIS_PROVIDER_COLUMNS):
-        missing = len(_SYNTHESIS_PROVIDER_COLUMNS) - len(descriptions)
-        return f"[SYNTHESIS_SKIPPED: Only {len(descriptions)}/{len(_SYNTHESIS_PROVIDER_COLUMNS)} providers available — {missing} missing]"
+def synthesize_single_image(llama_client, row: dict, provider_columns: list | None = None, min_providers: int | None = None) -> str:
+    """Use Llama 3.3-70B to produce a concise reconstruction prompt from descriptions."""
+    cols = provider_columns or _SYNTHESIS_PROVIDER_COLUMNS
+    required = min_providers if min_providers is not None else len(cols)
+    descriptions = _collect_valid_descriptions(row, provider_columns=cols)
+    if len(descriptions) < required:
+        missing = required - len(descriptions)
+        return f"[SYNTHESIS_SKIPPED: Only {len(descriptions)}/{required} providers available — {missing} missing]"
 
     user_message = (
         f"Here are {len(descriptions)} independent visual descriptions of the same diagram:\n\n"
@@ -440,12 +442,13 @@ def run_prompt_synthesis(
     output_csv: str | None = None,
     resume: bool = True,
     delay: float | None = None,
+    provider_columns: list | None = None,
+    min_providers: int | None = None,
 ) -> pd.DataFrame:
     """
     Synthesize a concise visual reconstruction prompt for every image using
     Llama 3.3-70B (text-only, via Groq) as the judge.
 
-    Reads descriptions.csv (5 provider columns), writes concise_prompts.csv.
     Resumable — skips already-processed image IDs on restart.
 
     Args:
@@ -453,21 +456,25 @@ def run_prompt_synthesis(
         output_csv: Destination CSV. Defaults to config.CONCISE_PROMPTS_CSV.
         resume: Resume from existing checkpoint.
         delay: Seconds between API calls.
+        provider_columns: List of (name, col) tuples for active providers.
+                          Defaults to _SYNTHESIS_PROVIDER_COLUMNS (all 4).
+                          Pass a subset for DaTikZ or other 2-provider runs.
 
     Returns:
         DataFrame with columns: image_id, question, category,
         concise_prompt, n_descriptions_used.
     """
-    input_csv  = input_csv  or config.DESCRIPTIONS_CSV
-    output_csv = output_csv or config.CONCISE_PROMPTS_CSV
-    delay      = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+    input_csv        = input_csv        or config.DESCRIPTIONS_CSV
+    output_csv       = output_csv       or config.CONCISE_PROMPTS_CSV
+    delay            = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
+    provider_columns = provider_columns or _SYNTHESIS_PROVIDER_COLUMNS
 
     if not os.path.exists(input_csv):
         print(f"ERROR: {input_csv} not found. Run the describe step first.")
         return None
 
     df = pd.read_csv(input_csv)
-    print(f"Loaded {len(df)} rows for prompt synthesis")
+    print(f"Loaded {len(df)} rows for prompt synthesis (requires {len(provider_columns)} providers)")
 
     results, processed_ids = load_checkpoint(output_csv) if resume else ([], set())
     if processed_ids:
@@ -482,10 +489,11 @@ def run_prompt_synthesis(
             continue
 
         time.sleep(delay)
-        n_valid = len(_collect_valid_descriptions(row.to_dict()))
+        row_dict = row.to_dict()
+        n_valid = len(_collect_valid_descriptions(row_dict, provider_columns=provider_columns))
 
         try:
-            concise_prompt = synthesize_single_image(llama_client, row.to_dict())
+            concise_prompt = synthesize_single_image(llama_client, row_dict, provider_columns=provider_columns, min_providers=min_providers)
             if str(concise_prompt)[:5].startswith("["):
                 error_count += 1
         except Exception as e:

@@ -26,6 +26,10 @@ PROMPT_SYNTH_MAX_TOKENS = int(os.getenv("PROMPT_SYNTH_MAX_TOKENS", "200"))
 HF_DATASET_NAME = os.getenv("HF_DATASET_NAME", "MathLLMs/MathVision")
 HF_SPLIT = os.getenv("HF_SPLIT", "test")
 
+# --- DaTikZ v3 Dataset ---
+DATIKZ_DATASET_NAME = os.getenv("DATIKZ_DATASET_NAME", "nllg/datikz-v3")
+DATIKZ_SPLIT = os.getenv("DATIKZ_SPLIT", "train")
+
 # --- Paths ---
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 
@@ -40,6 +44,13 @@ AGGREGATED_CSV = os.path.join(OUTPUT_DIR, "aggregated_descriptions.csv")
 ALL_IMAGES_CSV = os.path.join(OUTPUT_DIR, "all_images.csv")
 CONCISE_PROMPTS_CSV = os.path.join(OUTPUT_DIR, "concise_prompts.csv")
 BENCHMARKING_REPORT = os.path.join(OUTPUT_DIR, "benchmarking_report.html")
+
+# DaTikZ pipeline paths (isolated from MathVision outputs)
+DATIKZ_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "datikz")
+DATIKZ_ALL_IMAGES_CSV = os.path.join(DATIKZ_OUTPUT_DIR, "all_images.csv")
+DATIKZ_DESCRIPTIONS_CSV = os.path.join(DATIKZ_OUTPUT_DIR, "descriptions.csv")
+DATIKZ_CONCISE_PROMPTS_CSV = os.path.join(DATIKZ_OUTPUT_DIR, "concise_prompts.csv")
+DATIKZ_REPORT = os.path.join(DATIKZ_OUTPUT_DIR, "benchmarking_report.html")
 
 # --- Classification mode ---
 # "taxonomy" = dataset_helper multi-model pipeline (default)
