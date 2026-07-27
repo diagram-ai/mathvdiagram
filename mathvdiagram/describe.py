@@ -9,7 +9,6 @@ prompt with a category-specific hint.
 import os
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 from tqdm import tqdm
@@ -19,6 +18,7 @@ from .api_clients import (
     get_openai_client,
     get_gemini_model,
     get_claude_client,
+    get_qwen_client,
     get_llama_client,
 )
 from .data_loader import load_mathvision, get_image_pil, get_image_base64
@@ -160,6 +160,51 @@ def get_claude_description(client, image_b64: str, question_text: str, category:
     return result
 
 
+def get_qwen_description(client, image_b64: str, question_text: str, category: str = "unknown") -> str:
+    """Get description from Qwen vision model via OpenRouter."""
+    prompt = _build_description_prompt(category)
+
+    def _call():
+        response = client.chat.completions.create(
+            model=config.QWEN_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt + "\n\nDO NOT solve the problem or answer the question. ONLY describe what you see in the image visually.",
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Image category: {category}\nQuestion context (do NOT answer): {question_text}\n\nDescribe every visual element in this mathematical diagram.",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                        },
+                    ],
+                },
+            ],
+            max_tokens=config.DESCRIPTION_MAX_TOKENS,
+            timeout=60,
+        )
+        return response.choices[0].message.content
+
+    start = time.time()
+    result = call_with_retry(_call)
+    elapsed_ms = (time.time() - start) * 1000
+    response_len = len(result) if isinstance(result, str) else 0
+    logger.info(
+        "[TIMING] qwen.describe response_ms=%.1f response_len=%d",
+        elapsed_ms,
+        response_len,
+    )
+    if isinstance(result, str) and ("[API ERROR" in result or "[QUOTA" in result):
+        return f"[QWEN ERROR: {result}]"
+    return result
+
+
 def get_llama_description(client, image_b64: str, question_text: str, category: str = "unknown") -> str:
     """Get description from Llama vision model via Groq."""
     prompt = _build_description_prompt(category)
@@ -245,7 +290,7 @@ def run_description(
     Returns:
         DataFrame with columns: image_id, question, category,
         description_openai, description_gemini, description_claude,
-        description_llama, error_log
+        description_qwen, description_llama, error_log
     """
     input_csv = input_csv or config.CLASSIFICATION_CSV
     delay = delay if delay is not None else config.DELAY_BETWEEN_REQUESTS
@@ -276,11 +321,12 @@ def run_description(
     openai_client = get_openai_client()
     gemini_model = get_gemini_model()
     claude_client = get_claude_client()
+    qwen_client = get_qwen_client()
     llama_client = get_llama_client()
 
     processed_count = 0
 
-    providers = ["openai", "gemini", "claude", "llama"]
+    providers = ["openai", "gemini", "claude", "qwen", "llama"]
 
     for _, row in tqdm(
         df.iterrows(),
@@ -303,6 +349,7 @@ def run_description(
             "description_openai": "",
             "description_gemini": "",
             "description_claude": "",
+            "description_qwen": "",
             "description_llama": "",
             "error_log": "",
         }
@@ -340,6 +387,26 @@ def run_description(
                     entry[f"description_{name}"] = f"[ERROR: {str(e)[:200]}]"
                     errors.append(f"{name}: {str(e)[:100]}")
 
+        # Qwen (via OpenRouter)
+        try:
+            time.sleep(delay)
+            entry["description_qwen"] = get_qwen_description(
+                qwen_client, img_b64, question_text, category=category
+            )
+        except Exception as e:
+            entry["description_qwen"] = f"[ERROR: {str(e)[:200]}]"
+            errors.append(f"qwen: {str(e)[:100]}")
+
+        # Llama (via Groq)
+        try:
+            time.sleep(delay)
+            entry["description_llama"] = get_llama_description(
+                llama_client, img_b64, question_text, category=category
+            )
+        except Exception as e:
+            entry["description_llama"] = f"[ERROR: {str(e)[:200]}]"
+            errors.append(f"llama: {str(e)[:100]}")
+
         entry["error_log"] = "; ".join(errors) if errors else ""
 
         results.append(entry)
@@ -356,7 +423,7 @@ def run_description(
     # Print summary
     for provider in providers:
         col = f"description_{provider}"
-        valid = result_df[col].apply(_is_valid_description).sum()
+        valid = result_df[col].apply(lambda x: _is_valid_description(x)).sum()
         print(f"  {provider}: {valid}/{len(result_df)} successful")
 
     print(f"\nDescriptions complete: {len(result_df)} images")

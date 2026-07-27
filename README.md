@@ -12,17 +12,20 @@ Benchmarking diagram generation requires precise visual descriptions — detaile
 
 ### The Solution: Diverse Encoders + Independent Judge
 
-**Step 2 (Description)** uses 3 proprietary VLMs with different vision encoders:
+**Step 2 (Description)** uses an ensemble of popular VLMs with different vision encoders:
 
-| Model | Strength | Why Include |
-|-------|----------|-------------|
-| **OpenAI GPT-4o** | Strong on structured layouts, axes, labels | Best at coordinate systems and data extraction |
-| **Gemini 2.5 Flash** | Excellent spatial reasoning, fast | Catches geometric relationships others miss |
-| **Claude Sonnet 4** | Precise text transcription, cautious | Flags ambiguity rather than guessing |
+| Model | 
+|-------|
+| **OpenAI GPT-4o** |
+| **Gemini 2.5 Flash** | 
+| **Claude Sonnet 4** |
+| **llama 3.2** |
+
+Qwen was included but due to large latency in its APIs, first run has excluded it. However, the benchmark can accomodate any VLMs.
 
 Each model independently describes the same image using a structured 12-point checklist. This means 3 independent attempts to capture every visual detail — vertex labels, angle marks, line styles, shading, spatial relationships.
 
-**Step 3 (Aggregation)** uses **Qwen3-VL-235B** (open-source, via OpenRouter) as the judge:
+**Step 3 (Aggregation)** uses **llama** (open-source, via OpenRouter) as the judge:
 - Sees the **original image** plus all 3 descriptions
 - Identifies what they **agree** on (high confidence)
 - **Resolves conflicts** by checking the image directly
@@ -30,20 +33,18 @@ Each model independently describes the same image using a structured 12-point ch
 
 Why Qwen? It's open-source (Apache 2.0), so the aggregation step is fully reproducible. It's also not a participant in Step 2, avoiding circularity — the judge never grades its own work.
 
-### The Classification Problem
+### No Classfication of Images 
 
-Not all 3,040 MathVision images are reproducible diagrams. Many are photographs, illustrations, or decorated puzzles that a text-to-image model cannot meaningfully recreate. The classification system (Step 1) separates reproducible mathematical diagrams from non-diagram content using a 3-tier approach that minimizes API costs:
+We make no assumptions on ability of LLMs to be able to reproduce these 3040 diagrams. Many are photographs, illustrations, or decorated puzzles. We do understand that amongst the images such as illustrations of math diagrams coupled with figurines or natural objects. Since many text-to-image models are getting better, the challenge is to reproduce these images with mathematical correctness rather than exact figures shown here. The types of images are:
 
-- **High-tier subjects** (e.g., analytic geometry, solid geometry): ~95% diagram rate, classified by metadata alone — zero API calls
-- **Mixed-tier subjects** (e.g., algebra, graph theory): contain both diagrams and illustrations — need LLM inspection
-- **Low-tier subjects** (e.g., counting, arithmetic): mostly illustrated content — need LLM inspection
-
-This saves ~2,100 API calls compared to classifying every image.
+- **High-tier subjects** (e.g., analytic geometry, solid geometry): Majority pure math diagrams.
+- **Mixed-tier subjects** (e.g., algebra, graph theory): contain both diagrams and illustrations
+- **Low-tier subjects** (e.g., counting, arithmetic): mostly illustrated content
 
 ## Pipeline Overview
 
 ```
-Step 1: Classification (dataset_helper/)
+Step 1: Classification (dataset_helper/) 
   MathVision (3040 images)
     → Metadata pre-filter (2111 high-tier → no API calls)
     → Structured LLM classification (929 mixed/low-tier images)
@@ -51,7 +52,6 @@ Step 1: Classification (dataset_helper/)
     → Output: full_classification.csv
 
 Step 2: Description (describe.py)
-  Math diagrams only
     → OpenAI GPT-4o    → description_openai
     → Gemini 2.5 Flash → description_gemini
     → Claude Sonnet 4  → description_claude
@@ -352,9 +352,9 @@ LLM confidence scores are poorly calibrated — a model saying "90% confident" d
 
 This makes the pipeline's decisions transparent and reproducible.
 
-### Why 3 describers + 1 judge instead of 1 model?
+### Why ensemble describers + 1 judge instead of 1 model?
 
-A single VLM will consistently miss certain details based on its vision encoder's biases. Three independent models with different architectures produce complementary descriptions. The judge (Qwen VL) can verify against the actual image to resolve disagreements, rather than just picking the majority answer.
+A single VLM will consistently miss certain details based on its vision encoder's biases. Three independent models with different architectures produce complementary descriptions. The judge can verify against the actual image to resolve disagreements, rather than just picking the majority answer.
 
 ### Why metadata pre-filtering?
 
@@ -362,5 +362,5 @@ Subjects like "analytic geometry" and "solid geometry" are >95% formal diagrams.
 
 ### Why open-source for aggregation?
 
-Using a proprietary model (e.g., Claude) as both a describer and the judge creates circularity — the judge would be biased toward its own descriptions. Qwen3-VL-235B is open-source (Apache 2.0), ensuring the aggregation step is reproducible and unbiased.
+Using a proprietary model (e.g., Claude) as both a describer and the judge creates circularity — the judge would be biased toward its own descriptions. Qwen3-VL-235B or llama are open-source, ensuring the aggregation step is reproducible and so we use one or the other depending on which is in the input pipeline.
 

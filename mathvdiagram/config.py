@@ -18,9 +18,6 @@ AGGREGATION_MAX_TOKENS = int(os.getenv("AGGREGATION_MAX_TOKENS", "3000"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_BASE = os.getenv("GROQ_API_BASE", "https://api.groq.com/openai/v1")
 LLAMA_MODEL = os.getenv("LLAMA_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-# Text-only judge model for prompt synthesis (no vision needed at this step)
-LLAMA_JUDGE_MODEL = os.getenv("LLAMA_JUDGE_MODEL", "llama-3.3-70b-versatile")
-PROMPT_SYNTH_MAX_TOKENS = int(os.getenv("PROMPT_SYNTH_MAX_TOKENS", "200"))
 
 # --- HuggingFace Dataset ---
 HF_DATASET_NAME = os.getenv("HF_DATASET_NAME", "MathLLMs/MathVision")
