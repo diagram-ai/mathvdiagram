@@ -6,6 +6,7 @@ Images are cached locally after first download by the `datasets` library.
 """
 
 import io
+import os
 import base64
 
 import pandas as pd
@@ -84,3 +85,44 @@ def get_image_bytes(image_id) -> bytes | None:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def prepare_all_images(
+    output_csv: str | None = None,
+    num_samples: int | None = None,
+    test_ids: list | None = None,
+) -> pd.DataFrame:
+    """
+    Build a pass-through CSV for the description step that includes every
+    image in the dataset, bypassing classification entirely.
+
+    All rows are marked is_math=True so run_description() processes them
+    without filtering.
+
+    Args:
+        output_csv: Destination path. Defaults to config.ALL_IMAGES_CSV.
+        num_samples: Limit to first N rows (useful for testing).
+        test_ids: Only include specific image IDs (useful for spot-testing).
+
+    Returns:
+        DataFrame with columns: image_id, question, is_math, final_category.
+    """
+    output_csv = output_csv or config.ALL_IMAGES_CSV
+
+    df = load_mathvision()
+    if test_ids:
+        df = df[df["id"].astype(str).isin([str(i) for i in test_ids])]
+    elif num_samples:
+        df = df.head(num_samples)
+
+    result = pd.DataFrame({
+        "image_id":       df["id"].values,
+        "question":       df["question"].values,
+        "is_math":        True,
+        "final_category": df["subject"].fillna("unknown").values,
+    })
+
+    os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
+    result.to_csv(output_csv, index=False)
+    print(f"Prepared {len(result)} images → {output_csv}")
+    return result

@@ -14,9 +14,10 @@ import pandas as pd
 
 from . import config
 from .classify import run_classification
-from .describe import run_description
-from .consensus import run_consensus
-from .report import generate_report
+from .describe import run_description, retry_failed_descriptions
+from .consensus import run_consensus, run_prompt_synthesis
+from .report import generate_report, generate_benchmarking_report
+from .data_loader import prepare_all_images
 from .dataset_helper.pipeline import run_full_classification
 
 
@@ -150,6 +151,80 @@ def run_pipeline(
     print(f"  Report:         {report_path}")
 
     return aggregated_df if 'aggregated_df' in dir() else None
+
+
+def run_benchmarking_pipeline(
+    num_samples: int | None = None,
+    test_ids: list | None = None,
+    resume: bool = True,
+    delay: float | None = None,
+    skip_prep: bool = False,
+    skip_describe: bool = False,
+    skip_retry: bool = False,
+    skip_synthesize: bool = False,
+) -> None:
+    """
+    Classification-free benchmarking pipeline.
+
+    Steps:
+      1. prepare_all_images()   — build all_images.csv (no API calls)
+      2. run_description()      — 4 VLM providers in parallel
+      3. run_prompt_synthesis() — Llama 3.3-70B judge → concise_prompt
+      4. generate_benchmarking_report() — image + concise_prompt HTML
+
+    Args:
+        num_samples: Limit to first N images. None = all 3040.
+        test_ids: Only process specific image IDs (e.g. [363, 364, 365]).
+        resume: Resume each step from existing checkpoints.
+        delay: Seconds between API calls.
+        skip_prep: Skip step 1 if all_images.csv already exists.
+        skip_describe: Skip step 2 if descriptions.csv already exists.
+        skip_synthesize: Skip step 3 if concise_prompts.csv already exists.
+    """
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+
+    if skip_prep and os.path.exists(config.ALL_IMAGES_CSV):
+        print(f"Skipping prep  (using existing {config.ALL_IMAGES_CSV})")
+    else:
+        print("=" * 60)
+        print("STEP 1: Preparing all images (bypassing classification)")
+        print("=" * 60)
+        prepare_all_images(num_samples=num_samples, test_ids=test_ids)
+
+    if skip_describe and os.path.exists(config.DESCRIPTIONS_CSV):
+        print(f"Skipping describe (using existing {config.DESCRIPTIONS_CSV})")
+    else:
+        print("\n" + "=" * 60)
+        print("STEP 2: Generating descriptions (5 providers in parallel)")
+        print("=" * 60)
+        run_description(input_csv=config.ALL_IMAGES_CSV, resume=resume, delay=delay)
+
+    if not skip_retry:
+        print("\n" + "=" * 60)
+        print("STEP 2b: Retrying any failed provider descriptions")
+        print("=" * 60)
+        retry_failed_descriptions(delay=delay)
+
+    if skip_synthesize and os.path.exists(config.CONCISE_PROMPTS_CSV):
+        print(f"Skipping synthesis (using existing {config.CONCISE_PROMPTS_CSV})")
+    else:
+        print("\n" + "=" * 60)
+        print("STEP 3: Synthesizing concise prompts (Llama 3.3-70B judge)")
+        print("=" * 60)
+        run_prompt_synthesis(resume=resume, delay=delay)
+
+    print("\n" + "=" * 60)
+    print("STEP 4: Generating benchmarking HTML report")
+    print("=" * 60)
+    report_path = generate_benchmarking_report()
+
+    print("\n" + "=" * 60)
+    print("BENCHMARKING PIPELINE COMPLETE")
+    print("=" * 60)
+    print(f"  All images CSV:   {config.ALL_IMAGES_CSV}")
+    print(f"  Descriptions:     {config.DESCRIPTIONS_CSV}")
+    print(f"  Concise prompts:  {config.CONCISE_PROMPTS_CSV}")
+    print(f"  Report:           {report_path}")
 
 
 def main():
