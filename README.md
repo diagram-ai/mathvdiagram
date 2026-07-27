@@ -2,7 +2,7 @@
 
 A benchmark for evaluating LLMs on precision mathematical diagram generation.
 
-MathVDiagram processes the [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset (3,040 images across 16 math subjects) through a multi-stage pipeline: classify images into a 6-category diagram taxonomy, generate structured visual descriptions from 3 independent proprietary VLMs, and aggregate them into a single authoritative description using an open-source VLM judge.
+MathVDiagram processes the [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset (2920 images across 16 math subjects) through a multi-stage pipeline: classify images into a 6-category diagram taxonomy, generate structured visual descriptions from 3 independent proprietary VLMs, and aggregate them into a single authoritative description using an open-source VLM judge.
 
 ## Why This Architecture
 
