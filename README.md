@@ -35,7 +35,7 @@ Why Qwen? It's open-source (Apache 2.0), so the aggregation step is fully reprod
 
 ### No Classfication of Images 
 
-We make no assumptions on ability of LLMs to be able to reproduce these 3040 diagrams. Many are photographs, illustrations, or decorated puzzles. We do understand that amongst the images such as illustrations of math diagrams coupled with figurines or natural objects. Since many text-to-image models are getting better, the challenge is to reproduce these images with mathematical correctness rather than exact figures shown here. The types of images are:
+We make no assumptions on ability of LLMs to be able to reproduce these 2920 diagrams. Many are photographs, illustrations, or decorated puzzles. We do understand that amongst the images such as illustrations of math diagrams coupled with figurines or natural objects. Since many text-to-image models are getting better, the challenge is to reproduce these images with mathematical correctness rather than exact figures shown here. The types of images are:
 
 - **High-tier subjects** (e.g., analytic geometry, solid geometry): Majority pure math diagrams.
 - **Mixed-tier subjects** (e.g., algebra, graph theory): contain both diagrams and illustrations
@@ -45,7 +45,7 @@ We make no assumptions on ability of LLMs to be able to reproduce these 3040 dia
 
 ```
 Step 1: Classification (dataset_helper/) 
-  MathVision (3040 images)
+  MathVision (2920 images)
     → Metadata pre-filter (2111 high-tier → no API calls)
     → Structured LLM classification (929 mixed/low-tier images)
     → Boolean-based diagram/non-diagram decision
@@ -71,7 +71,7 @@ Step 4: Report (report.py)
 
 ```mermaid
 flowchart TD
-    A[(MathVision Dataset<br/>3040 images)] --> B
+    A[(MathVision Dataset<br/>2920 images)] --> B
 
     subgraph Step1["Step 1: Classification"]
         B[Metadata Pre-filter] --> C1[High Tier<br/>2111 images<br/>No API calls]
