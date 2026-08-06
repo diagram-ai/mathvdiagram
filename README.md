@@ -12,10 +12,9 @@ that builds precise prompts from an ensemble of vision-language models, and a
 and scores them against ground truth.
 
 ## News
-* **2026-08-06**: Repository reorganized into a two-stage structure
-  (curation + benchmark). Packaging migrated to `pyproject.toml` with optional
-  extras. Benchmark subpackage added: generate, evaluate, compare, report,
-  paper figures, curate, and HuggingFace upload.
+* **2026-06-24**: MathVDiagram accepted to [ICANN
+  2026](https://e-nns.org/icann2026/) (35th International Conference on
+  Artificial Neural Networks, Padua, Italy, September 14--17, 2026).
 * **2026-03-06**: Initial release.
 
 ## Installation
