@@ -12,7 +12,7 @@
 """
 
 __title__ = 'mathvdiagram'
-__version__ = '0.0.1'
+__version__ = '0.1.0'
 __author__ = 'Harish Kashyap, Sriram CR, Sanyukta Tuti'
 
 # Re-export dataset_helper for convenience:

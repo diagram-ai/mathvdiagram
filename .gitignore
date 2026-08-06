@@ -1,8 +1,15 @@
 # Virtual environment
 diagramb-env/
 
-# Pipeline output
+# Curation pipeline output
 output/
+
+# Benchmark artifacts (large: generated PNGs, logs, per-model results)
+outputs/
+outputs-gcp/
+
+# Ground truth images (download from the MathVision dataset)
+data/ground_truth/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
