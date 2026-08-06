@@ -289,7 +289,7 @@ published.)
 ```bibtex
 @software{mathvdiagram2026,
   title  = {MathVDiagram: A Benchmark for Precision Mathematical Diagram Generation},
-  author = {Kashyap, Harish and CR, Sriram and Tuti, Sanyukta},
+  author = {Kashyap, Harish and CR, Sriram and Tuti, Sanyukta and Mistry, Aryan and Kiran},
   year   = {2026},
   url    = {https://github.com/diagram-ai/mathvdiagram}
 }
