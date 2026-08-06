@@ -118,5 +118,5 @@ cite it. (Update with the final venue/DOI once published.)
 
 Source images are from the
 [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset. The
-repository organization is inspired by
+dataset is inspired by
 [DeTikZify](https://github.com/potamides/DeTikZify).
