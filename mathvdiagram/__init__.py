@@ -7,8 +7,8 @@
 
     Pipeline for Math Diagram Benchmark Generation
 
-    :copyright: (c) 2026 by Harish Kashyap, Sriram CR, Sanyukta Tuti.
-    :license: see LICENSE for more details.
+    :copyright: (c) 2026 Diagram AI.
+    :license: Apache-2.0, see LICENSE for more details.
 """
 
 __title__ = 'mathvdiagram'

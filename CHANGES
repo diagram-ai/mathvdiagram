@@ -1,8 +1,0 @@
-v0.1.0 -- Reorganize into a two-stage research repo (curation + benchmark).
-  - Add mathvdiagram.benchmark subpackage: generate, evaluate, compare, report,
-    paper_figures, curate, hf_upload (the model generation + evaluation half).
-  - Migrate packaging to pyproject.toml with optional-dependency extras
-    ([benchmark], [dev], [all]); drop setup.py/setup.cfg/MANIFEST.in.
-  - Add examples/ scripts, data/ and paper/ scaffolding, sub-READMEs.
-
-v0.0.1, Fri Mar  6 11:37:12 2026 -- Initial Release.
