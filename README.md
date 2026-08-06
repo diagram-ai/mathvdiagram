@@ -1,338 +1,78 @@
-# MathVDiagram
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# MathVDiagram<br><sub><sup>A Benchmark for Precision Mathematical Diagram Generation</sup></sub>
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Dataset on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-blue)](https://huggingface.co/datasets/diagramAI/mathvision-diagram-benchmark)
 
-A benchmark for evaluating LLMs and image models on **precision mathematical
-diagram generation**: given a natural-language description of a math diagram,
-can a model redraw it faithfully?
+MathVDiagram evaluates how faithfully LLMs and image-generation models can
+redraw mathematical diagrams from natural-language descriptions. It processes
+the [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset
+(2,920 images across 16 math subjects) in two stages: a **curation pipeline**
+that builds precise prompts from an ensemble of vision-language models, and a
+**benchmark** that generates diagrams with a suite of models, compiles them,
+and scores them against ground truth.
 
-MathVDiagram processes the [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset (2920 images across 16 math subjects) through a multi-stage pipeline: classify images into a 6-category diagram taxonomy, generate structured visual descriptions from 3 independent proprietary VLMs, and aggregate them into a single authoritative description using an open-source VLM judge. Those descriptions then drive a benchmark that generates diagrams with a suite of models and scores them against ground truth.
-
-MathVDiagram is organized as two stages that share a single artifact, the
-curated prompt set (`concise_prompts.csv`):
-
-1. **Prompt curation** (`mathvdiagram`) — process the
-   MathVision dataset: classify images into a diagram taxonomy,
-   describe each with an ensemble of vision-language models, and aggregate the
-   descriptions into one authoritative prompt with an open-source judge.
-2. **Benchmark** (`mathvdiagram.benchmark`) — feed those prompts to a suite of
-   models, compile their output to images, and score them against ground truth
-   with four automated metrics; then produce a leaderboard, paper figures, and
-   a HuggingFace dataset.
-
-```
-MathVision (2,920 images)
-      |   Stage 1: curation  (classify -> describe -> aggregate -> curate)
-      v
-data/concise_prompts.csv   <- the hand-off artifact
-      |   Stage 2: benchmark (generate -> evaluate -> compare -> paper -> upload)
-      v
-Leaderboard + paper assets + HuggingFace dataset
-```
-
----
-
-## Stage 1: Prompt curation
-
-### Why an ensemble + an independent judge
-
-Benchmarking diagram generation requires precise visual descriptions -- detailed enough
-for a model to recreate a diagram exactly. A single VLM produces descriptions with
-blind spots: it might capture geometric labels perfectly but miss line styles, or
-describe axes accurately but overlook subtle angle marks.
-
-**Step 2 (Description)** uses an ensemble of popular VLMs with different vision encoders,
-each independently answering the same 12-point checklist:
-
-| Model |
-|-------|
-| OpenAI GPT-4o |
-| Gemini 2.5 Flash |
-| Claude Sonnet 4 |
-| Llama 3.2 (optional, via Groq) |
-
-Qwen was included but due to large latency in its APIs, first run has excluded it.
-However, the benchmark can accommodate any VLMs.
-
-Each model independently describes the same image using a structured 12-point
-checklist. This means 3 independent attempts to capture every visual detail --
-vertex labels, angle marks, line styles, shading, spatial relationships.
-
-**Step 3 (Aggregation)** uses an **open-source** VLM judge (Qwen3-VL via
-OpenRouter, or Llama via Groq). The judge sees the original image plus all
-descriptions, then:
-- Identifies what they **agree** on (high confidence)
-- **Resolves conflicts** by checking the image directly
-- Adds anything all describers **missed**
-
-Using an open-source judge keeps the aggregation step reproducible and avoids
-circularity -- the judge never grades its own work.
-
-### No classification of images
-
-We make no assumptions on the ability of LLMs to reproduce these 2920 diagrams.
-Many are photographs, illustrations, or decorated puzzles. We do understand that
-amongst the images such as illustrations of math diagrams coupled with figurines
-or natural objects. Since many text-to-image models are getting better, the
-challenge is to reproduce these images with mathematical correctness rather than
-exact figures shown here. The types of images are:
-
-- **High-tier subjects** (e.g., analytic geometry, solid geometry): Majority pure math diagrams.
-- **Mixed-tier subjects** (e.g., algebra, graph theory): contain both diagrams and illustrations.
-- **Low-tier subjects** (e.g., counting, arithmetic): mostly illustrated content.
-
-### Diagram taxonomy
-
-Images are classified into 6 categories, each with specific description focus areas:
-
-| Category | Definition | Examples |
-|----------|-----------|----------|
-| **Geometric Construction** | Abstract 2D shapes with formal math annotations -- labeled vertices, angle marks, congruence ticks | Labeled triangles, circle theorems, polygon constructions |
-| **Coordinate Plot** | Images with explicit coordinate systems and axes -- plotted functions, data points, defined regions | Cartesian planes with functions, polar plots, shaded regions |
-| **Statistical Chart** | Charts presenting quantitative data with labeled axes or categories | Bar charts, pie charts, histograms, scatter plots |
-| **Schematic Diagram** | Formally structured diagrams showing mathematical relationships without coordinate axes | Venn diagrams, number lines, tree diagrams, labeled graphs |
-| **3D Figure** | Wireframe or technical drawings of 3D mathematical objects with annotations | Labeled cubes/prisms/pyramids, cross-sections, nets of solids |
-| **Non-Diagram** | Images relying on real-world objects, photographs, or illustrations | Animal counting, illustrated puzzles, clock faces |
-
-The category determines which **hints** are appended to the description prompt.
-For example, a `geometric_construction` image gets: *"FOCUS ESPECIALLY ON:
-exact vertex labels, angle measures, congruence/parallel marks, right-angle
-indicators..."*
-
-### Curation pipeline
-
-```
-Step 1: Classification (dataset_helper/)
-  MathVision (2920 images)
-    -> Metadata pre-filter (2111 high-tier -> no API calls)
-    -> Structured LLM classification (929 mixed/low-tier images)
-    -> Boolean-based diagram/non-diagram decision
-    -> Output: full_classification.csv
-
-Step 2: Description (describe.py)
-    -> OpenAI GPT-4o    -> description_openai
-    -> Gemini 2.5 Flash -> description_gemini
-    -> Claude Sonnet 4  -> description_claude
-  Same 12-point checklist prompt + category-specific hints
-    -> Output: descriptions.csv
-
-Step 3: Aggregation (consensus.py)
-  Each image + all 3 descriptions
-    -> Qwen3-VL-235B (via OpenRouter)
-    -> Agreement analysis, conflict resolution, coverage check
-    -> Output: aggregated_descriptions.csv / concise_prompts.csv
-
-Step 4: Report (report.py)
-    -> HTML report with embedded images, descriptions, and aggregated results
-    -> Output: report.html
-```
-
-```mermaid
-flowchart TD
-    A[(MathVision Dataset<br/>2920 images)] --> B
-
-    subgraph Step1["Step 1: Classification"]
-        B[Metadata Pre-filter] --> C1[High Tier<br/>2111 images<br/>No API calls]
-        B --> C2[Mixed + Low Tier<br/>929 images]
-        C2 --> D{Structured LLM<br/>Classification}
-        D --> E[6-Category Taxonomy<br/>+ Boolean Features]
-        C1 --> F
-        E --> F[Boolean Decision]
-        F -->|Diagram| G[Math Diagrams]
-        F -->|Non-diagram| H[Skipped]
-    end
-
-    H --> H1[skipped_non_math.csv]
-
-    subgraph Step2["Step 2: Description (3 Independent VLMs)"]
-        G --> I[OpenAI GPT-4o]
-        G --> J[Gemini 2.5 Flash]
-        G --> K[Claude Sonnet 4]
-    end
-
-    subgraph Step3["Step 3: Aggregation (Open-Source Judge)"]
-        I --> L[Qwen3-VL-235B<br/>via OpenRouter]
-        J --> L
-        K --> L
-        G --> L
-        L --> M[Final Authoritative<br/>Description]
-    end
-
-    M --> N[aggregated_descriptions.csv]
-
-    subgraph Step4["Step 4: Report"]
-        H1 --> O[HTML Report]
-        N --> O
-        O --> P[report.html]
-    end
-
-    style A fill:#4a90d9,color:#fff
-    style D fill:#10a37f,color:#fff
-    style I fill:#10a37f,color:#fff
-    style J fill:#4285f4,color:#fff
-    style K fill:#d97706,color:#fff
-    style L fill:#7c3aed,color:#fff
-    style P fill:#7c3aed,color:#fff
-    style H fill:#dc3545,color:#fff
-    style G fill:#28a745,color:#fff
-    style C1 fill:#28a745,color:#fff
-```
-
----
-
-## Stage 2: Benchmark
-
-Once you have a curated `data/concise_prompts.csv`, the
-[`mathvdiagram.benchmark`](mathvdiagram/benchmark/README.md) subpackage runs the
-evaluation:
-
-| Step | Module | Output |
-|------|--------|--------|
-| Generate | `benchmark.generate` | Prompt each model; compile TikZ / SVG / Python (or take image output) to `outputs/<model>/*.png` |
-| Evaluate | `benchmark.evaluate` | DISTS, CLIP similarity, Edge IoU, Edge F1, and CMMD -> `outputs/<model>/eval_results.json` |
-| Compare | `benchmark.compare` | Cross-model leaderboard + Wilcoxon/Holm significance -> `outputs/comparison_report.html` |
-| Report | `benchmark.report` | Per-model side-by-side HTML |
-| Paper | `benchmark.paper_figures` | PDF figures, LaTeX tables, CSV/JSON exports into `paper/` |
-| Curate | `benchmark.curate` | Local web UI to record `data/excluded_ids.txt` |
-| Upload | `benchmark.hf_upload` | Build + push the HuggingFace dataset |
-
-### Models
-
-Code LLMs emit TikZ/SVG/Python that is compiled; image models return images
-directly. The default suite:
-
-| Model | Type | Provider |
-|-------|------|----------|
-| DeepSeek V3 / R1 | Code LLM | DeepSeek |
-| GPT-5.4 | Code LLM | OpenAI |
-| GPT-OSS-120B | Code LLM | Groq |
-| Claude Opus 4.6 | Code LLM | OpenRouter |
-| Gemini 3.1 Pro | Code LLM | OpenRouter |
-| Qwen3.5-35B | Code LLM | OpenRouter |
-| Llama 4 Maverick | Code LLM | OpenRouter |
-| Kimi K2.5 | Code LLM | OpenRouter |
-| Nano Banana 2 / Pro | Image Gen | OpenRouter |
-
-### Metrics
-
-- **DISTS** (lower is better): perceptual distance from deep features.
-- **CLIP Similarity** (higher is better): cosine similarity of CLIP ViT-B/32 embeddings.
-- **Edge IoU** / **Edge F1** (higher is better): overlap of Canny edge masks; well suited to line drawings.
-- **CMMD** (lower is better): CLIP Maximum Mean Discrepancy (unbiased MMD, median-heuristic bandwidth).
-
----
+## News
+* **2026-08-06**: Repository reorganized into a two-stage structure
+  (curation + benchmark). Packaging migrated to `pyproject.toml` with optional
+  extras. Benchmark subpackage added: generate, evaluate, compare, report,
+  paper figures, curate, and HuggingFace upload.
+* **2026-03-06**: Initial release.
 
 ## Installation
 
-### 1. Create and activate virtual environment
-
-```bash
+MathVDiagram can be installed using [pip](https://pip.pypa.io/en/stable):
+```sh
 git clone https://github.com/diagram-ai/mathvdiagram
 cd mathvdiagram
-python -m venv venv
 
-# Windows (PowerShell)
-venv\Scripts\activate
-
-# Windows (Git Bash / WSL)
-source venv/Scripts/activate
-
-# macOS / Linux
-source venv/bin/activate
-```
-
-### 2. Install dependencies
-
-```bash
 # Stage 1 (curation) only:
 pip install -e .
 
-# Stage 1 + Stage 2 (benchmark: metrics, figures, HF upload):
+# Stage 1 + Stage 2 (benchmark):
 pip install -e ".[benchmark]"
 ```
+In addition, the benchmark generation step requires a full
+[TeX Live](https://www.tug.org/texlive) installation providing `pdflatex`,
+[poppler](https://poppler.freedesktop.org) for `pdftoppm`, and
+[Cairo](https://cairographics.org) for SVG compilation. On a fresh VM,
+[`examples/setup_gcp.sh`](examples/setup_gcp.sh) installs all of this.
 
-The benchmark generation step also needs a system TeX stack for the TikZ
-compiler -- a [TeX Live](https://www.tug.org/texlive) install providing
-`pdflatex`, plus `pdftoppm` from [poppler](https://poppler.freedesktop.org) --
-and Cairo for the SVG compiler. On a fresh VM, `examples/setup_gcp.sh`
-installs all of this.
-
-### 3. Configure API keys
-
-```bash
-cp .env.example .env
+Then configure API keys:
+```sh
+cp .env.example .env   # fill in the keys for the providers you use
 ```
-
-Required keys in `.env`:
-
-```env
-# Proprietary VLMs (Steps 1 & 2)
-GOOGLE_API_KEY=your-google-api-key
-OPENAI_API_KEY=your-openai-api-key
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Open-source aggregator (Step 3)
-OPENROUTER_API_KEY=your-openrouter-api-key
-
-# Benchmark generation (Step 2 providers)
-DEEPSEEK_API_KEY=your-deepseek-api-key
-GROQ_API_KEY=your-groq-api-key
-```
-
----
 
 ## Usage
 
-All commands are run from the repository root.
+> [!TIP]
+> For detailed CLI options, pipeline architecture, and per-file documentation,
+> see the subpackage READMEs:
+> [Stage 1 (curation)](mathvdiagram/README.md) and
+> [Stage 2 (benchmark)](mathvdiagram/benchmark/README.md).
+
+All commands run from the repository root.
 
 ### Stage 1: build the prompt set
 
-```bash
+```sh
 # Full curation pipeline
 python -m mathvdiagram.pipeline
 
 # Smoke test on a few images
 python -m mathvdiagram.pipeline --num-samples 10
 
-# Specific image IDs only
-python -m mathvdiagram.pipeline --test-ids 1 5 8 2121
-
-# Reuse existing classification, run descriptions + aggregation
-python -m mathvdiagram.pipeline --skip-classify
-
-# Reuse classification + descriptions, run aggregation only
-python -m mathvdiagram.pipeline --skip-classify --skip-describe
-
-# Reuse everything, regenerate the HTML report only
-python -m mathvdiagram.pipeline --skip-classify --skip-describe --skip-aggregate
-
-# Start fresh (ignore checkpoints)
-python -m mathvdiagram.pipeline --no-resume
-
-# Run classification independently (+ standalone report)
+# Run classification independently
 python -m mathvdiagram.dataset_helper --classify --report
-
-# Dataset exploration only
-python -m mathvdiagram.dataset_helper --stats
-
-# Force old GPT binary classification instead of taxonomy
-python -m mathvdiagram.pipeline --legacy-classify
-
-# Adjust rate limiting
-python -m mathvdiagram.pipeline --delay 5
 ```
 
-Review the prompts, then place the curated file at `data/concise_prompts.csv`:
-
-```bash
+Review the prompts, then curate:
+```sh
 python -m mathvdiagram.benchmark.curate
 ```
 
 ### Stage 2: run the benchmark
 
-```bash
+```sh
 # One model, a few prompts
 python -m mathvdiagram.benchmark.generate --model deepseek-v3 --limit 20 --workers 4
 python -m mathvdiagram.benchmark.evaluate --model deepseek-v3
@@ -343,204 +83,28 @@ bash examples/run_experiment.sh
 python -m mathvdiagram.benchmark.compare
 python -m mathvdiagram.benchmark.paper_figures
 
-# Publish
+# Publish to HuggingFace
 python -m mathvdiagram.benchmark.hf_upload --dry-run
 ```
 
-See [`examples/`](examples/) for the orchestration scripts and
-[`mathvdiagram/benchmark/`](mathvdiagram/benchmark/README.md) for per-module docs.
+More involved examples can be found in the [examples](examples/) folder.
 
----
-
-## Repository structure
-
-```
-mathvdiagram/
-├── pyproject.toml            # packaging + optional-dependency extras
-├── README.md
-├── .env.example
-├── data/                     # concise_prompts.csv, excluded_ids.txt, ground_truth/ (gitignored)
-├── paper/                    # generated figures, tables, data exports, reports
-├── examples/                 # run_experiment.sh, setup_gcp.sh
-├── tests/
-└── mathvdiagram/
-    ├── config.py             # keys, model names, prompts, output paths
-    ├── api_clients.py        # client factories (OpenAI, Gemini, Claude, Qwen, Llama)
-    ├── data_loader.py        # MathVision loading + image access
-    ├── utils.py              # retry, base64, checkpoint I/O
-    ├── classify.py           # legacy GPT binary classification (fallback)
-    ├── describe.py           # Step 2: ensemble VLM descriptions
-    ├── consensus.py          # Step 3: open-source judge aggregation
-    ├── report.py             # Step 4: curation HTML report
-    ├── pipeline.py           # curation orchestrator (CLI: python -m mathvdiagram.pipeline)
-    ├── dataset_helper/       # Step 1: taxonomy classification subsystem
-    └── benchmark/            # Stage 2: generate, evaluate, compare, report,
-                              #          paper_figures, curate, hf_upload, models
-```
-
-### File details
-
-#### Core pipeline
-
-| File | Purpose |
-|------|---------|
-| **`config.py`** | Central configuration. API keys loaded from `.env`, model names (`gpt-5.2`, `gemini-2.5-flash`, `claude-sonnet-4`, `qwen3-vl-235b`), output CSV paths, the 12-point description checklist prompt, category-specific hints, and pipeline defaults (delay, checkpoint interval, retry count). |
-| **`api_clients.py`** | Factory functions that create authenticated API clients. `get_openai_client()`, `get_gemini_model()`, `get_claude_client()` for proprietary providers, plus `get_qwen_client()` which wraps OpenRouter's OpenAI-compatible endpoint. |
-| **`data_loader.py`** | Loads MathVision from HuggingFace into a pandas DataFrame with a global cache. Provides `get_image_pil()`, `get_image_base64()`, and `get_image_bytes()` -- images are stored separately from the DataFrame to avoid serialization overhead. |
-| **`utils.py`** | Shared utilities. `call_with_retry()` implements exponential backoff with smart error classification (quota exhaustion vs rate limits vs timeouts). `load_checkpoint()` / `save_checkpoint()` enable resume across all pipeline stages. |
-| **`describe.py`** | Step 2. Sends each math image to OpenAI, Gemini, and Claude independently using the same 12-point checklist prompt. `_build_description_prompt(category)` appends category-specific hints. Each provider call is isolated -- if one fails, the others still produce descriptions. Outputs `description_openai`, `description_gemini`, `description_claude` columns. |
-| **`consensus.py`** | Step 3. Sends the original image plus all available descriptions to Qwen3-VL-235B via OpenRouter. The model follows a structured process: agreement analysis, conflict resolution, coverage check, final description. Output is parsed into `agreement`, `conflicts`, `additions`, and `final_description` fields. Backward-compatible with old column names (`openai_prompt`, `gemini_prompt`). |
-| **`report.py`** | Step 4. Builds a standalone HTML report with embedded base64 images. Shows classification badges (category + reliability), description boxes for each provider (Gemini/OpenAI/Claude with color-coded headers), and the Qwen aggregated description. Supports both old and new column naming conventions. |
-| **`pipeline.py`** | Main orchestrator. Runs Steps 1->2->3->4 in sequence with skip flags (`--skip-classify`, `--skip-describe`, `--skip-aggregate`). Includes `_generate_legacy_csvs()` which bridges taxonomy classification output to the column format expected by downstream steps. |
-| **`classify.py`** | Legacy fallback. Simple binary (math/non-math) classification using GPT. Activated with `--legacy-classify`. Not used in the default taxonomy pipeline. |
-
-#### Classification subsystem (`dataset_helper/`)
-
-| File | Purpose |
-|------|---------|
-| **`taxonomy.py`** | Defines the 6-category taxonomy as `TaxonomyCategory` dataclasses with definitions, include/exclude examples, and keywords. Maps all 16 MathVision subjects to priority tiers (high/mixed/low) and default categories. |
-| **`exploration.py`** | Dataset analysis. `get_dataset_statistics()` computes distributions. `apply_metadata_prefilter()` splits images by subject priority -- high-tier subjects skip LLM classification entirely. Prints tier breakdown and API call savings. |
-| **`classification.py`** | Structured LLM classification. Sends images with a taxonomy-aware prompt that extracts 6 boolean features (`has_geometric_labels`, `has_labeled_axes`, `has_grid_or_coordinate_system`, `has_mathematical_notation`, `has_real_world_objects`, `has_photographic_content`) plus category, confidence, and reasoning. Supports OpenAI, Gemini, and Claude backends. |
-| **`agreement.py`** | Multi-model consensus. `classify_from_booleans()` applies 5 deterministic rules over majority-voted boolean features to make diagram/non-diagram decisions -- immune to LLM confidence calibration issues. `compute_reliability_score()` combines agreement level with mean confidence. `compute_agreement_statistics()` tracks boolean decision distributions and override rates. |
-| **`validation.py`** | Quality assurance. `detect_quality_signals()` scans descriptions for non-diagram phrases with negation awareness. `run_filter_ablation()` proves the filter adds value by comparing independent metrics between included and excluded images. |
-| **`pipeline.py`** | Classification orchestrator. Runs the full 8-step flow: load dataset, print summary, metadata pre-filter, validate pre-filter sample, structured LLM classification, compute agreement, save results, generate statistics. |
-| **`report.py`** | Standalone HTML classification report with category-colored badges, reliability bars, provider vote chips, and JavaScript filter buttons. Run independently via `python -m mathvdiagram.dataset_helper --report`. |
-
-#### Benchmark subpackage (`benchmark/`)
-
-| File | Purpose |
-|------|---------|
-| **`models.py`** | Model registry. `MODELS` dict with provider URLs, API key env vars, and model IDs. `get_client()` returns an OpenAI-compatible client for any provider. `generate_code()` / `generate_image()` send prompts to code LLMs or image generators. |
-| **`generate.py`** | Generation driver. Extracts code blocks from LLM responses, detects format (TikZ/SVG/Python), compiles to PNG. Runs prompts in parallel with `ThreadPoolExecutor`. Caches outputs to skip completed work on re-runs. |
-| **`evaluate.py`** | Scoring engine. Computes DISTS, CLIP similarity, Edge IoU/F1 per image pair, and CMMD across the full model run. Outputs `eval_results.json`. |
-| **`compare.py`** | Cross-model comparison. Builds a leaderboard on the common subset of successfully generated images, runs pairwise Wilcoxon signed-rank tests with Holm correction, produces `comparison_report.html`. |
-| **`report.py`** | Per-model HTML report with generation summary, overall metrics, per-category breakdown, and side-by-side ground truth vs. generated image comparisons. |
-| **`paper_figures.py`** | Publication assets. Generates PDF figures (distributions, compile rates, category heatmaps, format analysis, correlations, significance matrices, radar charts, scatter plots), LaTeX tables, and CSV/JSON data exports into `paper/`. |
-| **`curate.py`** | Local web UI served on `localhost:8000`. Browse prompts, view ground truth images, and record exclusion decisions in `data/excluded_ids.txt`. |
-| **`hf_upload.py`** | HuggingFace dataset builder. Assembles `full`, `common_subset`, and `ground_truth` configs from outputs and pushes to the Hub along with supplementary evaluation JSONs. |
-
----
-
-## Output files
-
-### Stage 1 outputs (in `output/`)
-
-| File | Step | Description |
-|------|------|-------------|
-| `full_classification.csv` | 1 | Complete classification results for all 2,920 images -- categories, boolean features, reliability scores, agreement levels |
-| `classification_results.csv` | 1 | Math diagrams only (legacy bridge format with `is_math=True`) |
-| `skipped_non_math.csv` | 1 | Non-diagram images (legacy bridge format with `is_math=False`) |
-| `classification_report.html` | 1 | Interactive HTML report for classification results with category filters |
-| `descriptions.csv` | 2 | 3 independent descriptions per image (`description_openai`, `description_gemini`, `description_claude`) |
-| `aggregated_descriptions.csv` | 3 | Qwen aggregated output -- `agreement`, `conflicts`, `additions`, `final_description` |
-| `report.html` | 4 | Full pipeline HTML report with images, descriptions, and aggregated results |
-
-### Stage 2 outputs
-
-| Location | Description |
-|----------|-------------|
-| `outputs/<model>/` | Generated PNGs, raw code, generation log |
-| `outputs/<model>/eval_results.json` | Per-image metric scores |
-| `outputs/comparison_report.html` | Cross-model leaderboard HTML |
-| `paper/figures/` | PDF publication figures |
-| `paper/tables/` | LaTeX table files |
-| `paper/data/` | CSV/JSON data exports |
-| `paper/reports/` | Per-model HTML reports |
-
----
-
-## Configuration
-
-Settings can be overridden via environment variables or `.env`:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | -- | OpenAI API key (required for Steps 1 & 2) |
-| `GOOGLE_API_KEY` | -- | Google AI API key (required for Step 2) |
-| `ANTHROPIC_API_KEY` | -- | Anthropic API key (required for Step 2) |
-| `OPENROUTER_API_KEY` | -- | OpenRouter API key (required for Step 3 + benchmark) |
-| `DEEPSEEK_API_KEY` | -- | DeepSeek API key (benchmark generation) |
-| `GROQ_API_KEY` | -- | Groq API key (benchmark generation) |
-| `HF_DATASET_NAME` | `MathLLMs/MathVision` | HuggingFace dataset |
-| `HF_SPLIT` | `test` | Dataset split |
-| `OUTPUT_DIR` | `output` | Output directory |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model for descriptions |
-| `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Claude model (classification) |
-| `CLAUDE_DESCRIPTION_MODEL` | `claude-sonnet-4-20250514` | Claude model (descriptions) |
-| `QWEN_MODEL` | `qwen/qwen3-vl-235b-a22b-instruct` | Qwen VL model via OpenRouter |
-| `DESCRIPTION_MAX_TOKENS` | `2000` | Max tokens for description output |
-| `AGGREGATION_MAX_TOKENS` | `3000` | Max tokens for aggregation output |
-| `DELAY_BETWEEN_REQUESTS` | `3` | Seconds between API calls |
-| `CHECKPOINT_EVERY` | `10` | Save checkpoint every N images |
-| `MAX_RETRIES` | `5` | Max retries for failed API calls |
-| `CLASSIFICATION_MODE` | `taxonomy` | `taxonomy` (default) or `legacy` |
-
----
-
-## Datasets & models
+## Model Weights & Datasets
 
 The generated images, ground truth, and per-image metrics are published on the
 Hugging Face Hub:
 [`diagramAI/mathvision-diagram-benchmark`](https://huggingface.co/datasets/diagramAI/mathvision-diagram-benchmark),
 with three configs -- `full`, `common_subset`, and `ground_truth`. Rebuild and
-push it with `python -m mathvdiagram.benchmark.hf_upload`.
+push with `python -m mathvdiagram.benchmark.hf_upload`.
 
-Source images come from [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision)
+Source images come from
+[MathVision](https://huggingface.co/datasets/MathLLMs/MathVision)
 (Wang et al., 2024).
-
----
-
-## Design decisions
-
-### Why boolean-based classification instead of confidence thresholds?
-
-LLM confidence scores are poorly calibrated -- a model saying "90% confident"
-doesn't reliably mean 90% accuracy. Instead, classification uses 6 concrete
-boolean features (`has_geometric_labels`, `has_real_world_objects`, etc.) and
-applies deterministic rules:
-
-1. Real-world objects without math structure -> non-diagram
-2. Photographic content without math structure -> non-diagram
-3. Geometric labels OR labeled axes OR grid -> diagram
-4. Mathematical notation without real-world objects -> diagram
-5. No strong signals -> fallback to model category
-
-This makes the pipeline's decisions transparent and reproducible.
-
-### Why ensemble describers + 1 judge instead of 1 model?
-
-A single VLM will consistently miss certain details based on its vision
-encoder's biases. Three independent models with different architectures produce
-complementary descriptions. The judge can verify against the actual image to
-resolve disagreements, rather than just picking the majority answer.
-
-### Why metadata pre-filtering?
-
-Subjects like "analytic geometry" and "solid geometry" are >95% formal diagrams.
-Sending these to an LLM for classification wastes API calls. The metadata
-pre-filter assigns these directly, saving ~2,100 calls (69% of the dataset) with
-negligible accuracy loss, validated by spot-checking 5% of pre-filtered images.
-
-### Why open-source for aggregation?
-
-Using a proprietary model (e.g., Claude) as both a describer and the judge
-creates circularity -- the judge would be biased toward its own descriptions.
-Qwen3-VL-235B or Llama are open-source, ensuring the aggregation step is
-reproducible and so we use one or the other depending on which is in the input
-pipeline.
-
-### Why edge-based structural metrics?
-
-For line drawings, Canny edge IoU/F1 captures geometric layout better than pixel
-or bounding-box overlap. Combined with perceptual (DISTS), semantic (CLIP), and
-distributional (CMMD) metrics, the suite covers different failure modes.
-
----
 
 ## Citation
 
-If you use MathVDiagram, please cite it. (Update with the final venue/DOI once
-published.)
+If MathVDiagram has been beneficial for your research or applications, please
+cite it. (Update with the final venue/DOI once published.)
 
 ```bibtex
 @software{mathvdiagram2026,
@@ -553,6 +117,7 @@ published.)
 
 ## Acknowledgments
 
-Source images are from the [MathVision](https://huggingface.co/datasets/MathLLMs/MathVision)
-dataset. The repository organization is inspired by
+Source images are from the
+[MathVision](https://huggingface.co/datasets/MathLLMs/MathVision) dataset. The
+repository organization is inspired by
 [DeTikZify](https://github.com/potamides/DeTikZify).

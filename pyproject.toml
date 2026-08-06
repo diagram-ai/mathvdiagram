@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A benchmark for evaluating LLMs on precision mathematical diagram generation"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [
   { name = "Harish Kashyap" },
   { name = "Sriram CR" },
@@ -26,7 +26,7 @@ keywords = [
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
