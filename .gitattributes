@@ -1,0 +1,4 @@
+# Track large, generated benchmark artifacts with Git LFS.
+paper/reports/*.html filter=lfs diff=lfs merge=lfs -text
+paper/figures/*.pdf filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
