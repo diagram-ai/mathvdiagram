@@ -24,7 +24,7 @@ from huggingface_hub import HfApi
 
 from .models import MODEL_ORDER
 
-DEFAULT_REPO_ID = "diagramAI/mathvision-diagram-benchmark"
+DEFAULT_REPO_ID = "mathdiagrams/MathVisionBenchmark"
 
 PROMPTS_CSV = Path("data") / "concise_prompts.csv"
 GROUND_TRUTH = Path("data") / "ground_truth"

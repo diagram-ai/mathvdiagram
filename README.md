@@ -1,7 +1,7 @@
 # MathVDiagram<br><sub><sup>A Benchmark for Precision Mathematical Diagram Generation</sup></sub>
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Dataset on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-blue)](https://huggingface.co/datasets/diagramAI/mathvision-diagram-benchmark)
+[![Dataset on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-blue)](https://huggingface.co/datasets/mathdiagrams/MathVisionBenchmark)
 
 MathVDiagram evaluates how faithfully LLMs and image-generation models can
 redraw mathematical diagrams from natural-language descriptions. It processes
@@ -92,7 +92,7 @@ More involved examples can be found in the [examples](examples/) folder.
 
 The generated images, ground truth, and per-image metrics are published on the
 Hugging Face Hub:
-[`diagramAI/mathvision-diagram-benchmark`](https://huggingface.co/datasets/diagramAI/mathvision-diagram-benchmark),
+[`mathdiagrams/MathVisionBenchmark`](https://huggingface.co/datasets/mathdiagrams/MathVisionBenchmark),
 with three configs -- `full`, `common_subset`, and `ground_truth`. Rebuild and
 push with `python -m mathvdiagram.benchmark.hf_upload`.
 
